@@ -31,7 +31,169 @@ async function sendSubsonicXml(reply: FastifyReply, xml: string) {
   return reply.send(xml);
 }
 
+function renderLandingPage(appBaseUrl: string) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My MP3 Streamer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f1115;
+        --panel: #171a21;
+        --panel-2: #1f2430;
+        --text: #f4f7fb;
+        --muted: #9ca3af;
+        --accent: #7dd3fc;
+        --border: rgba(255,255,255,0.08);
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: radial-gradient(circle at top, #182031 0%, var(--bg) 42%);
+        color: var(--text);
+        display: grid;
+        place-items: center;
+      }
+      .card {
+        width: min(760px, calc(100vw - 32px));
+        background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        box-shadow: 0 24px 80px rgba(0,0,0,0.35);
+        padding: 32px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(2rem, 4vw, 3.25rem);
+      }
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 24px;
+      }
+      a {
+        color: var(--text);
+        text-decoration: none;
+      }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+      }
+      .button.primary {
+        background: linear-gradient(135deg, #2563eb, #06b6d4);
+        color: white;
+        border-color: transparent;
+      }
+      code {
+        background: var(--panel-2);
+        padding: 2px 6px;
+        border-radius: 6px;
+        color: var(--accent);
+      }
+      .meta {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+        font-size: 0.95rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>My MP3 Streamer</h1>
+      <p>A self-hosted music server for streaming MP3s from Cloudflare R2 through Railway.</p>
+      <div class="actions">
+        <a class="button primary" href="/admin-panel">Open admin panel</a>
+        <a class="button" href="/health">Health check</a>
+      </div>
+      <div class="meta">
+        <p>API base: <code>${appBaseUrl}</code></p>
+        <p>Admin endpoints expect <code>Authorization: Bearer &lt;ADMIN_API_KEY&gt;</code> or <code>x-admin-key</code>.</p>
+      </div>
+    </main>
+  </body>
+</html>`;
+}
+
+function renderAdminPanelPage(appBaseUrl: string) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My MP3 Streamer Admin</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #0f1115;
+        color: #e5e7eb;
+        display: grid;
+        place-items: center;
+      }
+      .card {
+        width: min(760px, calc(100vw - 32px));
+        background: #171a21;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 20px;
+        padding: 28px;
+      }
+      h1 { margin: 0 0 12px; }
+      p { color: #9ca3af; line-height: 1.6; }
+      code {
+        background: #1f2430;
+        padding: 2px 6px;
+        border-radius: 6px;
+        color: #7dd3fc;
+      }
+      ul { line-height: 1.9; }
+      a { color: #7dd3fc; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Admin Panel</h1>
+      <p>This is a lightweight admin landing page for test ingestion. Use the API endpoints below with your admin key.</p>
+      <ul>
+        <li><code>POST ${appBaseUrl}/admin/bootstrap-import</code></li>
+        <li><code>POST ${appBaseUrl}/admin/import</code></li>
+        <li><code>POST ${appBaseUrl}/admin/upload-url</code></li>
+      </ul>
+      <p>Auth: <code>Authorization: Bearer &lt;ADMIN_API_KEY&gt;</code> or <code>x-admin-key</code>.</p>
+      <p><a href="/">Back to home</a></p>
+    </main>
+  </body>
+</html>`;
+}
+
 export async function registerPublicRoutes(app: FastifyInstance) {
+  app.get('/', async (_request, reply) => {
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    return reply.send(renderLandingPage(config.APP_BASE_URL));
+  });
+
+  app.get('/admin-panel', async (_request, reply) => {
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    return reply.send(renderAdminPanelPage(config.APP_BASE_URL));
+  });
+
   app.get('/health', async () => ({
     ok: true,
     service: 'my-mp3-streamer'

@@ -105,3 +105,8 @@ curl -X POST "$APP_BASE_URL/admin/import" \
 ```
 
 7. Open the Android client and browse the library.
+
+## App landing page
+
+The Railway app root URL now shows a simple landing page with a link to `/admin-panel`.
+That admin page is only a lightweight guide page; the actual ingestion actions still use the authenticated admin API endpoints.
