@@ -138,6 +138,18 @@ Server endpoints:
 
 The server-side job uses `yt-dlp` and `ffmpeg` to extract an MP3, uploads the MP3 and thumbnail to R2, and saves catalog metadata to Postgres. The included `Dockerfile` installs those media tools for Railway.
 
+If YouTube challenges Railway with "Sign in to confirm you're not a bot", export your private YouTube cookies in Netscape `cookies.txt` format, base64 encode the file, and set this Railway variable:
+
+- `YTDLP_COOKIES_BASE64`
+
+On macOS:
+
+```bash
+base64 -i youtube-cookies.txt | pbcopy
+```
+
+Paste the copied value into Railway as `YTDLP_COOKIES_BASE64`. Keep this secret private and rotate/remove it if you no longer need YouTube imports.
+
 Chrome setup:
 
 1. Open `chrome://extensions`.

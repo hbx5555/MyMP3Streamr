@@ -17,6 +17,7 @@ const envSchema = z.object({
   DEFAULT_STREAM_BITRATE: z.coerce.number().int().nonnegative().default(0),
   LOW_BANDWIDTH_BITRATE: z.coerce.number().int().positive().default(128),
   STREAM_URL_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  YTDLP_COOKIES_BASE64: z.string().optional().default(''),
   LOG_LEVEL: z.string().default('info')
 });
 

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { createOrUpdateAlbum, createOrUpdateArtist, createOrUpdateTrack } from '../db/repositories.js';
 import { putR2Object } from '../storage/r2.js';
@@ -58,7 +59,7 @@ export type YoutubeImportJob = {
   updatedAt: string;
 };
 
-function assertAllowedYoutubeUrl(rawUrl: string) {
+function getCanonicalYoutubeUrl(rawUrl: string) {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -70,6 +71,41 @@ function assertAllowedYoutubeUrl(rawUrl: string) {
   if (!YOUTUBE_HOSTS.has(host)) {
     throw new Error('Only YouTube URLs are supported');
   }
+
+  if (host === 'youtu.be') {
+    const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+    if (!videoId) throw new Error('Missing YouTube video id');
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  }
+
+  const videoId = parsed.searchParams.get('v');
+  if (!videoId) {
+    throw new Error('Missing YouTube video id');
+  }
+  return `https://www.youtube.com/watch?v=${videoId}`;
+}
+
+async function writeCookiesFile(tmpDir: string) {
+  if (!config.YTDLP_COOKIES_BASE64) return null;
+  const cookiesPath = path.join(tmpDir, 'youtube-cookies.txt');
+  await fs.writeFile(cookiesPath, Buffer.from(config.YTDLP_COOKIES_BASE64, 'base64'));
+  return cookiesPath;
+}
+
+function getYtDlpBaseArgs(cookiesPath: string | null) {
+  const args = [
+    '--no-playlist',
+    '--no-warnings',
+    '--force-ipv4',
+    '--extractor-args',
+    'youtube:player_client=default,ios'
+  ];
+
+  if (cookiesPath) {
+    args.push('--cookies', cookiesPath);
+  }
+
+  return args;
 }
 
 async function setImportStatus(importId: string, status: string, errorMessage?: string) {
@@ -114,18 +150,22 @@ async function updateImportOutput(input: {
   );
 }
 
-async function getYoutubeMetadata(sourceUrl: string): Promise<YoutubeMetadata> {
-  const { stdout } = await execFileAsync('yt-dlp', ['--dump-json', '--no-playlist', sourceUrl], {
+async function getYoutubeMetadata(sourceUrl: string, cookiesPath: string | null): Promise<YoutubeMetadata> {
+  const { stdout } = await execFileAsync('yt-dlp', [
+    ...getYtDlpBaseArgs(cookiesPath),
+    '--dump-json',
+    sourceUrl
+  ], {
     maxBuffer: 10 * 1024 * 1024,
     timeout: 120_000
   });
   return JSON.parse(stdout) as YoutubeMetadata;
 }
 
-async function extractMp3(sourceUrl: string, tmpDir: string) {
+async function extractMp3(sourceUrl: string, tmpDir: string, cookiesPath: string | null) {
   const outputTemplate = path.join(tmpDir, 'source.%(ext)s');
   await execFileAsync('yt-dlp', [
-    '--no-playlist',
+    ...getYtDlpBaseArgs(cookiesPath),
     '--extract-audio',
     '--audio-format',
     'mp3',
@@ -160,13 +200,15 @@ async function downloadThumbnail(thumbnailUrl: string) {
 async function runYoutubeImport(importId: string, input: YoutubeImportInput) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `mymp3streamr-${importId}-`));
   try {
+    const canonicalSourceUrl = getCanonicalYoutubeUrl(input.sourceUrl);
+    const cookiesPath = await writeCookiesFile(tmpDir);
     await setImportStatus(importId, 'metadata');
-    const metadata = await getYoutubeMetadata(input.sourceUrl);
+    const metadata = await getYoutubeMetadata(canonicalSourceUrl, cookiesPath);
     const sourceTitle = input.title?.trim() || metadata.title || 'YouTube Track';
     const artistName = input.artistName?.trim() || metadata.uploader || metadata.channel || 'YouTube';
     const albumTitle = input.albumTitle?.trim() || sourceTitle;
     const thumbnailUrl = input.thumbnailUrl?.trim() || metadata.thumbnail || null;
-    const sourceUrl = metadata.webpage_url || input.sourceUrl;
+    const sourceUrl = metadata.webpage_url || canonicalSourceUrl;
 
     await updateImportOutput({
       importId,
@@ -176,7 +218,7 @@ async function runYoutubeImport(importId: string, input: YoutubeImportInput) {
     });
 
     await setImportStatus(importId, 'extracting');
-    const mp3Path = await extractMp3(input.sourceUrl, tmpDir);
+    const mp3Path = await extractMp3(canonicalSourceUrl, tmpDir, cookiesPath);
     const mp3 = await fs.readFile(mp3Path);
     const stat = await fs.stat(mp3Path);
 
@@ -248,16 +290,16 @@ async function runYoutubeImport(importId: string, input: YoutubeImportInput) {
 }
 
 export async function createYoutubeImport(input: YoutubeImportInput) {
-  assertAllowedYoutubeUrl(input.sourceUrl);
+  const canonicalSourceUrl = getCanonicalYoutubeUrl(input.sourceUrl);
 
   const importId = randomId();
   await pool.query(
     `insert into imports (id, status, source_url, source_title, source_thumbnail_url, created_at, updated_at)
      values ($1::uuid, $2, $3, $4, $5, now(), now())`,
-    [importId, 'queued', input.sourceUrl, input.title ?? null, input.thumbnailUrl ?? null]
+    [importId, 'queued', canonicalSourceUrl, input.title ?? null, input.thumbnailUrl ?? null]
   );
 
-  void runYoutubeImport(importId, input);
+  void runYoutubeImport(importId, { ...input, sourceUrl: canonicalSourceUrl });
 
   return {
     importId,
