@@ -66,6 +66,19 @@ export async function presignR2Get(key: string, ttlSeconds: number) {
   );
 }
 
+export async function presignR2Put(key: string, contentType: string, ttlSeconds: number) {
+  const r2 = getR2Client();
+  return getSignedUrl(
+    r2,
+    new PutObjectCommand({
+      Bucket: getR2Config().R2_BUCKET_NAME,
+      Key: key,
+      ContentType: contentType
+    }),
+    { expiresIn: ttlSeconds }
+  );
+}
+
 export function r2PublicUrl(key: string) {
   if (!config.R2_PUBLIC_BASE_URL) return null;
   return `${config.R2_PUBLIC_BASE_URL.replace(/\/$/, '')}/${key}`;

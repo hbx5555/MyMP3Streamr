@@ -8,6 +8,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16),
   ADMIN_EMAIL: z.string().email(),
   ADMIN_PASSWORD: z.string().min(8),
+  ADMIN_API_KEY: z.string().min(16),
   R2_ACCOUNT_ID: z.string().default(''),
   R2_ACCESS_KEY_ID: z.string().default(''),
   R2_SECRET_ACCESS_KEY: z.string().default(''),
