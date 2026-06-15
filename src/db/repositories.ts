@@ -56,6 +56,13 @@ export async function listTracksByAlbum(albumId: string): Promise<TrackRow[]> {
   return result.rows;
 }
 
+export async function listTracks(): Promise<TrackRow[]> {
+  const result = await query<TrackRow>(
+    'select id, album_id, artist_id, title, sort_title, track_number, disc_number, duration_seconds, bitrate, mime_type, file_suffix, audio_key, file_size, checksum, source_url, source_title, source_thumbnail_key from tracks order by coalesce(sort_title, title)'
+  );
+  return result.rows;
+}
+
 export async function getTrackById(id: string): Promise<TrackRow | null> {
   const result = await query<TrackRow>(
     'select id, album_id, artist_id, title, sort_title, track_number, disc_number, duration_seconds, bitrate, mime_type, file_suffix, audio_key, file_size, checksum, source_url, source_title, source_thumbnail_key from tracks where id = $1 limit 1',

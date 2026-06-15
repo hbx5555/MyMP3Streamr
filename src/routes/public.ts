@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { authenticateRequest, AuthError } from '../auth/index.js';
 import { config } from '../config.js';
-import { getAlbumById, getArtistById, getTrackById, listAlbums, listAlbumsByArtist, listArtists, listTracksByAlbum, searchCatalog } from '../db/repositories.js';
+import { getAlbumById, getArtistById, getTrackById, listAlbums, listAlbumsByArtist, listArtists, listTracks, listTracksByAlbum, searchCatalog } from '../db/repositories.js';
 import { getR2Object } from '../storage/r2.js';
 import { renderAlbumDirectory, renderAlbumList, renderMusicFolders, renderPing, renderSearchResults, renderSong } from '../catalog/format.js';
 import { SUBSONIC_VERSION, subsonicErrorXml, wrapSubsonicResponse, xmlElement } from '../utils/subsonic.js';
+import type { AlbumRow, ArtistRow, TrackRow } from '../types.js';
 
 function getCleanId(raw: string | undefined, prefix: string): string | null {
   if (!raw) return null;
@@ -70,6 +71,85 @@ async function sendSubsonicError(request: FastifyRequest, reply: FastifyReply, c
   }
 
   return sendSubsonicXml(reply, subsonicErrorXml(code, message));
+}
+
+function normalizeSubsonicSearchQuery(query: string | undefined): string {
+  const trimmed = (query ?? '').trim();
+  return trimmed === '""' ? '' : trimmed.replace(/^"(.*)"$/, '$1');
+}
+
+function getNumberQuery(request: FastifyRequest, key: string, fallback: number): number {
+  const query = request.query as Record<string, string | undefined>;
+  const parsed = Number.parseInt(query[key] ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function sliceForSubsonic<T>(items: T[], offset: number, count: number): T[] {
+  if (count === 0) return [];
+  return items.slice(offset, offset + count);
+}
+
+function mapById<T extends { id: string }>(items: T[]): Map<string, T> {
+  return new Map(items.map((item) => [item.id, item]));
+}
+
+function jsonArtist(artist: ArtistRow, albumCount = 0) {
+  return {
+    id: `artist:${artist.id}`,
+    name: artist.name,
+    albumCount
+  };
+}
+
+function jsonAlbum(album: AlbumRow, artist: ArtistRow | undefined) {
+  return {
+    id: `album:${album.id}`,
+    parent: `artist:${album.artist_id}`,
+    name: album.title,
+    title: album.title,
+    artist: artist?.name ?? '',
+    artistId: `artist:${album.artist_id}`,
+    year: album.year ?? undefined,
+    genre: album.genre ?? undefined,
+    coverArt: album.cover_art_key ?? undefined,
+    songCount: album.track_count,
+    duration: album.duration_seconds,
+    isDir: true
+  };
+}
+
+function jsonTrack(track: TrackRow, album: AlbumRow | undefined, artist: ArtistRow | undefined) {
+  return {
+    id: `track:${track.id}`,
+    parent: `album:${track.album_id}`,
+    albumId: `album:${track.album_id}`,
+    artistId: track.artist_id ? `artist:${track.artist_id}` : undefined,
+    isDir: false,
+    title: track.title,
+    album: album?.title ?? '',
+    artist: artist?.name ?? '',
+    track: track.track_number ?? undefined,
+    discNumber: track.disc_number ?? undefined,
+    year: album?.year ?? undefined,
+    genre: album?.genre ?? undefined,
+    coverArt: track.source_thumbnail_key ?? album?.cover_art_key ?? undefined,
+    size: track.file_size,
+    contentType: track.mime_type,
+    suffix: track.file_suffix,
+    duration: track.duration_seconds,
+    bitRate: track.bitrate ?? undefined,
+    path: `${artist?.name ?? 'Unknown Artist'}/${album?.title ?? 'Unknown Album'}/${track.title}.${track.file_suffix}`
+  };
+}
+
+async function loadCatalogMaps() {
+  const [artists, albums] = await Promise.all([listArtists(), listAlbums()]);
+  return {
+    artists,
+    albums,
+    artistById: mapById(artists),
+    albumById: mapById(albums)
+  };
 }
 
 function renderLandingPage(appBaseUrl: string) {
@@ -656,13 +736,18 @@ export async function registerPublicRoutes(app: FastifyInstance) {
 
   app.get('/rest/getMusicFolders.view', async (request, reply) => {
     const user = await ensureAuth(request);
-    if (!user) return sendSubsonicXml(reply, subsonicErrorXml(40, 'Authentication failed'));
-    return sendSubsonicXml(reply, wrapSubsonicResponse(renderMusicFolders()));
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(renderMusicFolders()),
+      { musicFolders: { musicFolder: [{ id: 'root', name: 'Library' }] } }
+    );
   });
 
   app.get('/rest/getIndexes.view', async (request, reply) => {
     const user = await ensureAuth(request);
-    if (!user) return sendSubsonicXml(reply, subsonicErrorXml(40, 'Authentication failed'));
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
     const artists = await listArtists();
     const sections = artists.reduce<Record<string, typeof artists>>((acc, artist) => {
       const section = (artist.sort_name ?? artist.name).slice(0, 1).toUpperCase();
@@ -675,27 +760,48 @@ export async function registerPublicRoutes(app: FastifyInstance) {
       name: artist.name,
       albumCount: 0
     })).join(''))).join(''));
-    return sendSubsonicXml(reply, wrapSubsonicResponse(body));
+    const [tracks, catalog] = await Promise.all([listTracks(), loadCatalogMaps()]);
+    const index = Object.keys(sections).sort().map((section) => ({
+      name: section,
+      artist: sections[section].map((artist) => jsonArtist(artist, catalog.albums.filter((album) => album.artist_id === artist.id).length))
+    }));
+    const child = tracks.map((track) => {
+      const album = catalog.albumById.get(track.album_id);
+      const artist = track.artist_id ? catalog.artistById.get(track.artist_id) : undefined;
+      return jsonTrack(track, album, artist);
+    });
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(body),
+      { indexes: { index, child, lastModified: Date.now(), ignoredArticles: 'The El La Los Las Le Les' } }
+    );
   });
 
   app.get('/rest/getArtists.view', async (request, reply) => {
     const user = await ensureAuth(request);
-    if (!user) return sendSubsonicXml(reply, subsonicErrorXml(40, 'Authentication failed'));
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
     const artists = await listArtists();
     const body = xmlElement('artists', {}, artists.map((artist) => xmlElement('artist', {
       id: `artist:${artist.id}`,
       name: artist.name,
       albumCount: 0
     })).join(''));
-    return sendSubsonicXml(reply, wrapSubsonicResponse(body));
+    const albums = await listAlbums();
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(body),
+      { artists: { index: [{ name: 'A-Z', artist: artists.map((artist) => jsonArtist(artist, albums.filter((album) => album.artist_id === artist.id).length)) }] } }
+    );
   });
 
   app.get('/rest/getMusicDirectory.view', async (request, reply) => {
     const user = await ensureAuth(request);
-    if (!user) return sendSubsonicXml(reply, subsonicErrorXml(40, 'Authentication failed'));
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
     const query = request.query as Record<string, string | undefined>;
     const id = query.id;
-    if (!id) return sendSubsonicXml(reply, subsonicErrorXml(10, 'Missing id'));
+    if (!id) return sendSubsonicError(request, reply, 10, 'Missing id');
 
     if (id === 'root') {
       const artists = await listArtists();
@@ -704,13 +810,18 @@ export async function registerPublicRoutes(app: FastifyInstance) {
         name: artist.name,
         albumCount: 0
       })).join(''));
-      return sendSubsonicXml(reply, wrapSubsonicResponse(body));
+      return sendSubsonicOk(
+        request,
+        reply,
+        wrapSubsonicResponse(body),
+        { directory: { id: 'root', name: 'Library', child: artists.map((artist) => ({ ...jsonArtist(artist), isDir: true })) } }
+      );
     }
 
     const artistId = getCleanId(id, 'artist:');
     if (artistId) {
       const artist = await getArtistById(artistId);
-      if (!artist) return sendSubsonicXml(reply, subsonicErrorXml(70, 'Artist not found'));
+      if (!artist) return sendSubsonicError(request, reply, 70, 'Artist not found');
       const albums = await listAlbumsByArtist(artistId);
       const body = xmlElement('directory', { id: `artist:${artist.id}`, name: artist.name, isDir: true }, albums.map((album) => xmlElement('album', {
         id: `album:${album.id}`,
@@ -723,26 +834,44 @@ export async function registerPublicRoutes(app: FastifyInstance) {
         coverArt: album.cover_art_key ?? '',
         isDir: true
       })).join(''));
-      return sendSubsonicXml(reply, wrapSubsonicResponse(body));
+      return sendSubsonicOk(
+        request,
+        reply,
+        wrapSubsonicResponse(body),
+        { directory: { id: `artist:${artist.id}`, name: artist.name, child: albums.map((album) => jsonAlbum(album, artist)) } }
+      );
     }
 
     const albumId = getCleanId(id, 'album:');
     if (albumId) {
       const album = await getAlbumById(albumId);
-      if (!album) return sendSubsonicXml(reply, subsonicErrorXml(70, 'Album not found'));
+      if (!album) return sendSubsonicError(request, reply, 70, 'Album not found');
       const tracks = await listTracksByAlbum(albumId);
       const artist = await getArtistById(album.artist_id);
-      return sendSubsonicXml(reply, wrapSubsonicResponse(renderAlbumDirectory(album, tracks, artist?.name ?? '')));
+      return sendSubsonicOk(
+        request,
+        reply,
+        wrapSubsonicResponse(renderAlbumDirectory(album, tracks, artist?.name ?? '')),
+        { directory: { id: `album:${album.id}`, name: album.title, child: tracks.map((track) => jsonTrack(track, album, artist ?? undefined)) } }
+      );
     }
 
     const trackId = getCleanId(id, 'track:');
     if (trackId) {
       const track = await getTrackById(trackId);
-      if (!track) return sendSubsonicXml(reply, subsonicErrorXml(70, 'Track not found'));
-      return sendSubsonicXml(reply, wrapSubsonicResponse(renderSong(track)));
+      if (!track) return sendSubsonicError(request, reply, 70, 'Track not found');
+      const catalog = await loadCatalogMaps();
+      const album = catalog.albumById.get(track.album_id);
+      const artist = track.artist_id ? catalog.artistById.get(track.artist_id) : undefined;
+      return sendSubsonicOk(
+        request,
+        reply,
+        wrapSubsonicResponse(renderSong(track)),
+        { directory: { id: `track:${track.id}`, name: track.title, child: [jsonTrack(track, album, artist)] } }
+      );
     }
 
-    return sendSubsonicXml(reply, subsonicErrorXml(10, 'Unsupported id type'));
+    return sendSubsonicError(request, reply, 10, 'Unsupported id type');
   });
 
   app.get('/rest/getCoverArt.view', async (request, reply) => {
@@ -791,28 +920,120 @@ export async function registerPublicRoutes(app: FastifyInstance) {
 
   app.get('/rest/search3.view', async (request, reply) => {
     const user = await ensureAuth(request);
-    if (!user) return sendSubsonicXml(reply, subsonicErrorXml(40, 'Authentication failed'));
-    const q = (request.query as Record<string, string | undefined>).query;
-    if (!q) return sendSubsonicXml(reply, subsonicErrorXml(10, 'Missing query'));
-    const payload = await searchCatalog(q);
-    return sendSubsonicXml(reply, wrapSubsonicResponse(renderSearchResults(payload)));
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+    const rawQuery = (request.query as Record<string, string | undefined>).query;
+    if (rawQuery === undefined) return sendSubsonicError(request, reply, 10, 'Missing query');
+    const q = normalizeSubsonicSearchQuery(rawQuery);
+    const payload = q
+      ? await searchCatalog(q)
+      : {
+          artists: await listArtists(),
+          albums: await listAlbums(),
+          tracks: await listTracks()
+        };
+    const catalog = await loadCatalogMaps();
+    const artistOffset = getNumberQuery(request, 'artistOffset', 0);
+    const artistCount = getNumberQuery(request, 'artistCount', 20);
+    const albumOffset = getNumberQuery(request, 'albumOffset', 0);
+    const albumCount = getNumberQuery(request, 'albumCount', 20);
+    const songOffset = getNumberQuery(request, 'songOffset', 0);
+    const songCount = getNumberQuery(request, 'songCount', 20);
+    const artists = sliceForSubsonic(payload.artists, artistOffset, artistCount);
+    const albums = sliceForSubsonic(payload.albums, albumOffset, albumCount);
+    const tracks = sliceForSubsonic(payload.tracks, songOffset, songCount);
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(renderSearchResults(payload)),
+      {
+        searchResult3: {
+          artist: artists.map((artist) => jsonArtist(artist, catalog.albums.filter((album) => album.artist_id === artist.id).length)),
+          album: albums.map((album) => jsonAlbum(album, catalog.artistById.get(album.artist_id))),
+          song: tracks.map((track) => {
+            const album = catalog.albumById.get(track.album_id);
+            const artist = track.artist_id ? catalog.artistById.get(track.artist_id) : undefined;
+            return jsonTrack(track, album, artist);
+          })
+        }
+      }
+    );
+  });
+
+  app.get('/rest/getGenres.view', async (request, reply) => {
+    const user = await ensureAuth(request);
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+    const albums = await listAlbums();
+    const genreCounts = albums.reduce<Record<string, { albumCount: number; songCount: number }>>((acc, album) => {
+      if (!album.genre) return acc;
+      acc[album.genre] ??= { albumCount: 0, songCount: 0 };
+      acc[album.genre].albumCount += 1;
+      acc[album.genre].songCount += album.track_count;
+      return acc;
+    }, {});
+    const genre = Object.entries(genreCounts).map(([value, counts]) => ({
+      value,
+      albumCount: counts.albumCount,
+      songCount: counts.songCount
+    }));
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(xmlElement('genres')),
+      { genres: { genre } }
+    );
+  });
+
+  app.get('/rest/getStarred2.view', async (request, reply) => {
+    const user = await ensureAuth(request);
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(xmlElement('starred2')),
+      { starred2: { artist: [], album: [], song: [] } }
+    );
+  });
+
+  app.get('/rest/getBookmarks.view', async (request, reply) => {
+    const user = await ensureAuth(request);
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(xmlElement('bookmarks')),
+      { bookmarks: { bookmark: [] } }
+    );
   });
 
   app.get('/rest/getAlbumList2.view', async (request, reply) => {
     const user = await ensureAuth(request);
-    if (!user) return sendSubsonicXml(reply, subsonicErrorXml(40, 'Authentication failed'));
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
     const rows = await listAlbums();
-    return sendSubsonicXml(reply, wrapSubsonicResponse(renderAlbumList(rows.slice(0, 100))));
+    const catalog = await loadCatalogMaps();
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(renderAlbumList(rows.slice(0, 100))),
+      { albumList2: { album: rows.slice(0, 100).map((album) => jsonAlbum(album, catalog.artistById.get(album.artist_id))) } }
+    );
   });
 
   app.get('/rest/getSong.view', async (request, reply) => {
     const user = await ensureAuth(request);
-    if (!user) return sendSubsonicXml(reply, subsonicErrorXml(40, 'Authentication failed'));
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
     const id = (request.query as Record<string, string | undefined>).id;
-    if (!id) return sendSubsonicXml(reply, subsonicErrorXml(10, 'Missing id'));
+    if (!id) return sendSubsonicError(request, reply, 10, 'Missing id');
     const trackId = getCleanId(id, 'track:') ?? id;
     const track = await getTrackById(trackId);
-    if (!track) return sendSubsonicXml(reply, subsonicErrorXml(70, 'Track not found'));
-    return sendSubsonicXml(reply, wrapSubsonicResponse(renderSong(track)));
+    if (!track) return sendSubsonicError(request, reply, 70, 'Track not found');
+    const catalog = await loadCatalogMaps();
+    const album = catalog.albumById.get(track.album_id);
+    const artist = track.artist_id ? catalog.artistById.get(track.artist_id) : undefined;
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(renderSong(track)),
+      { song: jsonTrack(track, album, artist) }
+    );
   });
 }
