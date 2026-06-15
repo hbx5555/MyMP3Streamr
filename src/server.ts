@@ -15,6 +15,16 @@ async function main() {
 
   app.decorate('pg', pool);
 
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,x-admin-key');
+
+    if (request.method === 'OPTIONS') {
+      return reply.code(204).send();
+    }
+  });
+
   app.setErrorHandler(async (error, request, reply) => {
     request.log.error({ err: error }, 'request failed');
     if (reply.sent) return;
