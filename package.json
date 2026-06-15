@@ -1,0 +1,30 @@
+{
+  "name": "my-mp3-streamer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "migrate": "tsx scripts/migrate.ts",
+    "seed:admin": "tsx scripts/seed-admin.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.849.0",
+    "@aws-sdk/s3-request-presigner": "^3.849.0",
+    "dotenv": "^17.2.1",
+    "fastify": "^5.4.0",
+    "pg": "^8.16.3",
+    "zod": "^4.0.17"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}
