@@ -36,12 +36,21 @@ function wantsSubsonicJson(request: FastifyRequest): boolean {
   return query.f?.toLowerCase() === 'json';
 }
 
+function subsonicResponseBase(status: 'ok' | 'failed') {
+  return {
+    status,
+    version: SUBSONIC_VERSION,
+    type: 'MyMP3Streamr',
+    serverVersion: '0.1.0',
+    openSubsonic: true
+  };
+}
+
 async function sendSubsonicOk(request: FastifyRequest, reply: FastifyReply, xml: string, payload: Record<string, unknown> = {}) {
   if (wantsSubsonicJson(request)) {
     return reply.send({
       'subsonic-response': {
-        status: 'ok',
-        version: SUBSONIC_VERSION,
+        ...subsonicResponseBase('ok'),
         ...payload
       }
     });
@@ -54,8 +63,7 @@ async function sendSubsonicError(request: FastifyRequest, reply: FastifyReply, c
   if (wantsSubsonicJson(request)) {
     return reply.send({
       'subsonic-response': {
-        status: 'failed',
-        version: SUBSONIC_VERSION,
+        ...subsonicResponseBase('failed'),
         error: { code, message }
       }
     });
@@ -634,16 +642,17 @@ export async function registerPublicRoutes(app: FastifyInstance) {
     );
   });
 
-  app.get('/rest/getOpenSubsonicExtensions.view', async (request, reply) => {
-    const user = await ensureAuth(request);
-    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+  async function getOpenSubsonicExtensions(request: FastifyRequest, reply: FastifyReply) {
     return sendSubsonicOk(
       request,
       reply,
       wrapSubsonicResponse(xmlElement('openSubsonicExtensions')),
-      { openSubsonicExtensions: { openSubsonicExtension: [] } }
+      { openSubsonicExtensions: [] }
     );
-  });
+  }
+
+  app.get('/rest/getOpenSubsonicExtensions.view', getOpenSubsonicExtensions);
+  app.get('/rest/getOpenSubsonicExtensions', getOpenSubsonicExtensions);
 
   app.get('/rest/getMusicFolders.view', async (request, reply) => {
     const user = await ensureAuth(request);
