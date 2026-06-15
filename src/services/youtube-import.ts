@@ -95,7 +95,11 @@ async function writeCookiesFile(tmpDir: string) {
 function getYtDlpBaseArgs(cookiesPath: string | null, playerClient?: string) {
   const args = [
     '--no-playlist',
-    '--force-ipv4'
+    '--force-ipv4',
+    '--js-runtimes',
+    'deno:/usr/local/bin/deno',
+    '--remote-components',
+    'ejs:github'
   ];
 
   if (playerClient) {
