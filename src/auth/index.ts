@@ -11,6 +11,18 @@ export class AuthError extends Error {
   }
 }
 
+function decodeSubsonicPassword(password: string): string {
+  if (!password.startsWith('enc:')) {
+    return password;
+  }
+
+  try {
+    return Buffer.from(password.slice(4), 'hex').toString('utf8');
+  } catch {
+    throw new AuthError('Invalid encoded password');
+  }
+}
+
 export async function authenticateRequest(request: FastifyRequest, adminPassword?: string): Promise<UserRow> {
   const q = request.query as Record<string, string | undefined>;
   const username = q.u;
@@ -25,14 +37,14 @@ export async function authenticateRequest(request: FastifyRequest, adminPassword
 
   if (q.t && q.s) {
     const expected = subsonicToken(adminPassword ?? '', q.s);
-    if (q.t !== expected) {
+    if (q.t.toLowerCase() !== expected.toLowerCase()) {
       throw new AuthError('Invalid token');
     }
     return user;
   }
 
   if (q.p) {
-    if (!verifyPassword(user.password_hash, q.p)) {
+    if (!verifyPassword(user.password_hash, decodeSubsonicPassword(q.p))) {
       throw new AuthError('Invalid password');
     }
     return user;

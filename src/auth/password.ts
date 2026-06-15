@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { sha256Hex, sha1Hex } from '../utils/crypto.js';
+import { sha256Hex, md5Hex } from '../utils/crypto.js';
 
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -14,5 +14,5 @@ export function verifyPassword(storedHash: string, password: string): boolean {
 }
 
 export function subsonicToken(password: string, salt: string): string {
-  return sha1Hex(`${password}${salt}`);
+  return md5Hex(`${password}${salt}`);
 }

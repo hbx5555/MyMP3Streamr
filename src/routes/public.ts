@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { getAlbumById, getArtistById, getTrackById, listAlbums, listAlbumsByArtist, listArtists, listTracksByAlbum, searchCatalog } from '../db/repositories.js';
 import { getR2Object } from '../storage/r2.js';
 import { renderAlbumDirectory, renderAlbumList, renderMusicFolders, renderPing, renderSearchResults, renderSong } from '../catalog/format.js';
-import { subsonicErrorXml, wrapSubsonicResponse, xmlElement } from '../utils/subsonic.js';
+import { SUBSONIC_VERSION, subsonicErrorXml, wrapSubsonicResponse, xmlElement } from '../utils/subsonic.js';
 
 function getCleanId(raw: string | undefined, prefix: string): string | null {
   if (!raw) return null;
@@ -29,6 +29,39 @@ function parseRange(rangeHeader: string | undefined): string | undefined {
 async function sendSubsonicXml(reply: FastifyReply, xml: string) {
   reply.header('Content-Type', 'application/xml; charset=utf-8');
   return reply.send(xml);
+}
+
+function wantsSubsonicJson(request: FastifyRequest): boolean {
+  const query = request.query as Record<string, string | undefined>;
+  return query.f?.toLowerCase() === 'json';
+}
+
+async function sendSubsonicOk(request: FastifyRequest, reply: FastifyReply, xml: string, payload: Record<string, unknown> = {}) {
+  if (wantsSubsonicJson(request)) {
+    return reply.send({
+      'subsonic-response': {
+        status: 'ok',
+        version: SUBSONIC_VERSION,
+        ...payload
+      }
+    });
+  }
+
+  return sendSubsonicXml(reply, xml);
+}
+
+async function sendSubsonicError(request: FastifyRequest, reply: FastifyReply, code: number, message: string) {
+  if (wantsSubsonicJson(request)) {
+    return reply.send({
+      'subsonic-response': {
+        status: 'failed',
+        version: SUBSONIC_VERSION,
+        error: { code, message }
+      }
+    });
+  }
+
+  return sendSubsonicXml(reply, subsonicErrorXml(code, message));
 }
 
 function renderLandingPage(appBaseUrl: string) {
@@ -586,8 +619,30 @@ export async function registerPublicRoutes(app: FastifyInstance) {
 
   app.get('/rest/ping.view', async (request, reply) => {
     const user = await ensureAuth(request);
-    if (!user) return sendSubsonicXml(reply, subsonicErrorXml(40, 'Authentication failed'));
-    return sendSubsonicXml(reply, wrapSubsonicResponse(renderPing()));
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+    return sendSubsonicOk(request, reply, wrapSubsonicResponse(renderPing()));
+  });
+
+  app.get('/rest/getLicense.view', async (request, reply) => {
+    const user = await ensureAuth(request);
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(xmlElement('license', { valid: true })),
+      { license: { valid: true } }
+    );
+  });
+
+  app.get('/rest/getOpenSubsonicExtensions.view', async (request, reply) => {
+    const user = await ensureAuth(request);
+    if (!user) return sendSubsonicError(request, reply, 40, 'Authentication failed');
+    return sendSubsonicOk(
+      request,
+      reply,
+      wrapSubsonicResponse(xmlElement('openSubsonicExtensions')),
+      { openSubsonicExtensions: { openSubsonicExtension: [] } }
+    );
   });
 
   app.get('/rest/getMusicFolders.view', async (request, reply) => {
