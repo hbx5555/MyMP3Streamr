@@ -96,9 +96,7 @@ function getYtDlpBaseArgs(cookiesPath: string | null) {
   const args = [
     '--no-playlist',
     '--no-warnings',
-    '--force-ipv4',
-    '--extractor-args',
-    'youtube:player_client=default,ios'
+    '--force-ipv4'
   ];
 
   if (cookiesPath) {
@@ -153,6 +151,8 @@ async function updateImportOutput(input: {
 async function getYoutubeMetadata(sourceUrl: string, cookiesPath: string | null): Promise<YoutubeMetadata> {
   const { stdout } = await execFileAsync('yt-dlp', [
     ...getYtDlpBaseArgs(cookiesPath),
+    '--skip-download',
+    '--ignore-no-formats-error',
     '--dump-json',
     sourceUrl
   ], {
@@ -166,6 +166,8 @@ async function extractMp3(sourceUrl: string, tmpDir: string, cookiesPath: string
   const outputTemplate = path.join(tmpDir, 'source.%(ext)s');
   await execFileAsync('yt-dlp', [
     ...getYtDlpBaseArgs(cookiesPath),
+    '--format',
+    'bestaudio/best',
     '--extract-audio',
     '--audio-format',
     'mp3',
@@ -203,7 +205,12 @@ async function runYoutubeImport(importId: string, input: YoutubeImportInput) {
     const canonicalSourceUrl = getCanonicalYoutubeUrl(input.sourceUrl);
     const cookiesPath = await writeCookiesFile(tmpDir);
     await setImportStatus(importId, 'metadata');
-    const metadata = await getYoutubeMetadata(canonicalSourceUrl, cookiesPath);
+    let metadata: YoutubeMetadata;
+    try {
+      metadata = await getYoutubeMetadata(canonicalSourceUrl, cookiesPath);
+    } catch {
+      metadata = {};
+    }
     const sourceTitle = input.title?.trim() || metadata.title || 'YouTube Track';
     const artistName = input.artistName?.trim() || metadata.uploader || metadata.channel || 'YouTube';
     const albumTitle = input.albumTitle?.trim() || sourceTitle;
