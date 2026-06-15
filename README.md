@@ -26,6 +26,22 @@ Use one dedicated R2 bucket, for example `mymp3streamr-media`, with keys like:
 - `art/{albumId}/cover.jpg`
 - `imports/{importId}/source.json`
 
+The quickest path is the helper script:
+
+```bash
+APP_BASE_URL="https://mymp3streamr-production.up.railway.app" \
+ADMIN_API_KEY="your-admin-api-key" \
+AUDIO_FILE="/path/to/test-track.mp3" \
+COVER_FILE="/path/to/cover.jpg" \
+ARTIST_NAME="Test Artist" \
+ALBUM_TITLE="Test Album" \
+TRACK_TITLE="Test Track" \
+DURATION_SECONDS=180 \
+scripts/upload-test-media.sh
+```
+
+`COVER_FILE` is optional. The server must have the Cloudflare R2 variables configured before this script can create signed upload URLs.
+
 When the Railway server is running:
 
 1. Create a bootstrap payload:
