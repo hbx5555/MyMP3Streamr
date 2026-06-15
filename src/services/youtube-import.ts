@@ -92,12 +92,15 @@ async function writeCookiesFile(tmpDir: string) {
   return cookiesPath;
 }
 
-function getYtDlpBaseArgs(cookiesPath: string | null) {
+function getYtDlpBaseArgs(cookiesPath: string | null, playerClient?: string) {
   const args = [
     '--no-playlist',
-    '--no-warnings',
     '--force-ipv4'
   ];
+
+  if (playerClient) {
+    args.push('--extractor-args', `youtube:player_client=${playerClient}`);
+  }
 
   if (cookiesPath) {
     args.push('--cookies', cookiesPath);
@@ -162,31 +165,51 @@ async function getYoutubeMetadata(sourceUrl: string, cookiesPath: string | null)
   return JSON.parse(stdout) as YoutubeMetadata;
 }
 
-async function extractMp3(sourceUrl: string, tmpDir: string, cookiesPath: string | null) {
-  const outputTemplate = path.join(tmpDir, 'source.%(ext)s');
-  await execFileAsync('yt-dlp', [
-    ...getYtDlpBaseArgs(cookiesPath),
-    '--format',
-    'bestaudio/best',
-    '--extract-audio',
-    '--audio-format',
-    'mp3',
-    '--audio-quality',
-    '0',
-    '--output',
-    outputTemplate,
-    sourceUrl
-  ], {
-    maxBuffer: 10 * 1024 * 1024,
-    timeout: 15 * 60_000
-  });
-
+async function findMp3(tmpDir: string) {
   const files = await fs.readdir(tmpDir);
   const mp3 = files.find((file) => file.endsWith('.mp3'));
-  if (!mp3) {
-    throw new Error('yt-dlp did not produce an MP3 file');
+  return mp3 ? path.join(tmpDir, mp3) : null;
+}
+
+async function extractMp3(sourceUrl: string, tmpDir: string, cookiesPath: string | null) {
+  const playerClients = [undefined, 'android', 'web', 'mweb', 'ios'];
+  const formats = ['bestaudio[ext=m4a]/bestaudio/best', 'bestaudio/best', 'best'];
+  const errors: string[] = [];
+
+  for (const playerClient of playerClients) {
+    for (const format of formats) {
+      const outputTemplate = path.join(tmpDir, `source-${playerClient ?? 'default'}-%(ext)s`);
+      try {
+        await execFileAsync('yt-dlp', [
+          ...getYtDlpBaseArgs(cookiesPath, playerClient),
+          '--format',
+          format,
+          '--extract-audio',
+          '--audio-format',
+          'mp3',
+          '--audio-quality',
+          '0',
+          '--output',
+          outputTemplate,
+          sourceUrl
+        ], {
+          maxBuffer: 20 * 1024 * 1024,
+          timeout: 15 * 60_000
+        });
+
+        const mp3Path = await findMp3(tmpDir);
+        if (mp3Path) {
+          return mp3Path;
+        }
+        errors.push(`${playerClient ?? 'default'}:${format}: no mp3 output`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'unknown yt-dlp error';
+        errors.push(`${playerClient ?? 'default'}:${format}: ${message.slice(0, 500)}`);
+      }
+    }
   }
-  return path.join(tmpDir, mp3);
+
+  throw new Error(`yt-dlp could not extract an MP3 after trying multiple clients/formats. ${errors.join(' | ')}`);
 }
 
 async function downloadThumbnail(thumbnailUrl: string) {
