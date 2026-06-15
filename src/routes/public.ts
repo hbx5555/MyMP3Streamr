@@ -343,6 +343,14 @@ function renderAdminPanelPage(appBaseUrl: string) {
         font-size: 0.92rem;
       }
       label.full { grid-column: 1 / -1; }
+      .field-note {
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.4;
+      }
+      .field-note.ready {
+        color: var(--ok);
+      }
       input {
         width: 100%;
         box-sizing: border-box;
@@ -454,6 +462,7 @@ function renderAdminPanelPage(appBaseUrl: string) {
             <label class="full">
               Admin API key
               <input id="adminKey" name="adminKey" type="password" autocomplete="off" required />
+              <span id="adminKeyNote" class="field-note">Enter once per page session. It is not saved after refresh.</span>
             </label>
             <label class="full">
               MP3 file
@@ -521,6 +530,7 @@ function renderAdminPanelPage(appBaseUrl: string) {
       const appBaseUrl = ${JSON.stringify(appBaseUrl)};
       const form = document.getElementById('uploadForm');
       const adminKey = document.getElementById('adminKey');
+      const adminKeyNote = document.getElementById('adminKeyNote');
       const audioFile = document.getElementById('audioFile');
       const coverFile = document.getElementById('coverFile');
       const trackTitle = document.getElementById('trackTitle');
@@ -540,6 +550,24 @@ function renderAdminPanelPage(appBaseUrl: string) {
       function setBusy(isBusy) {
         submitButton.disabled = isBusy;
         submitButton.textContent = isBusy ? 'Uploading...' : 'Upload track';
+      }
+
+      function updateAdminKeyNote() {
+        if (adminKey.value.trim()) {
+          adminKeyNote.textContent = 'Key entered for this page session. It will stay until refresh or close.';
+          adminKeyNote.className = 'field-note ready';
+        } else {
+          adminKeyNote.textContent = 'Enter once per page session. It is not saved after refresh.';
+          adminKeyNote.className = 'field-note';
+        }
+      }
+
+      function resetUploadFields() {
+        const currentAdminKey = adminKey.value;
+        form.reset();
+        adminKey.value = currentAdminKey;
+        bitrate.value = '128';
+        updateAdminKeyNote();
       }
 
       function authHeaders() {
@@ -584,6 +612,9 @@ function renderAdminPanelPage(appBaseUrl: string) {
         }
         return data;
       }
+
+      adminKey.addEventListener('input', updateAdminKeyNote);
+      updateAdminKeyNote();
 
       audioFile.addEventListener('change', () => {
         const file = audioFile.files && audioFile.files[0];
@@ -681,7 +712,7 @@ function renderAdminPanelPage(appBaseUrl: string) {
           });
 
           setStatus('Uploaded: ' + imported.track.title + ' by ' + imported.artist.name, 'ok');
-          form.reset();
+          resetUploadFields();
           coverPreview.textContent = 'No cover selected';
         } catch (error) {
           setStatus(error instanceof Error ? error.message : 'Upload failed', 'error');
