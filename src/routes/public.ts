@@ -12,6 +12,11 @@ function getCleanId(raw: string | undefined, prefix: string): string | null {
   return raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
 }
 
+function getPrefixedId(raw: string | undefined, prefix: string): string | null {
+  if (!raw?.startsWith(prefix)) return null;
+  return raw.slice(prefix.length);
+}
+
 async function ensureAuth(request: FastifyRequest) {
   try {
     return await authenticateRequest(request, config.ADMIN_PASSWORD);
@@ -111,7 +116,7 @@ function jsonAlbum(album: AlbumRow, artist: ArtistRow | undefined) {
     artistId: `artist:${album.artist_id}`,
     year: album.year ?? undefined,
     genre: album.genre ?? undefined,
-    coverArt: album.cover_art_key ?? undefined,
+    coverArt: album.cover_art_key ? `album:${album.id}` : undefined,
     songCount: album.track_count,
     duration: album.duration_seconds,
     isDir: true
@@ -132,7 +137,7 @@ function jsonTrack(track: TrackRow, album: AlbumRow | undefined, artist: ArtistR
     discNumber: track.disc_number ?? undefined,
     year: album?.year ?? undefined,
     genre: album?.genre ?? undefined,
-    coverArt: track.source_thumbnail_key ?? album?.cover_art_key ?? undefined,
+    coverArt: track.source_thumbnail_key ? `track:${track.id}` : album?.cover_art_key ? `album:${album.id}` : undefined,
     size: track.file_size,
     contentType: track.mime_type,
     suffix: track.file_suffix,
@@ -881,14 +886,11 @@ export async function registerPublicRoutes(app: FastifyInstance) {
     const id = query.id;
     if (!id) return sendSubsonicXml(reply, subsonicErrorXml(10, 'Missing id'));
 
-    const trackId = getCleanId(id, 'track:');
-    const albumId = getCleanId(id, 'album:');
-    const resolvedId = trackId ?? albumId;
-    if (!resolvedId) return sendSubsonicXml(reply, subsonicErrorXml(10, 'Unsupported cover art id'));
-
+    const trackId = getPrefixedId(id, 'track:');
+    const albumId = getPrefixedId(id, 'album:');
     const track = trackId ? await getTrackById(trackId) : null;
     const album = albumId ? await getAlbumById(albumId) : null;
-    const objectKey = track?.source_thumbnail_key ?? album?.cover_art_key ?? null;
+    const objectKey = track?.source_thumbnail_key ?? album?.cover_art_key ?? (id.startsWith('art/') ? id : null);
     if (!objectKey) return sendSubsonicXml(reply, subsonicErrorXml(70, 'Cover art not found'));
 
     const object = await getR2Object(objectKey);
