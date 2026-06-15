@@ -145,7 +145,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const artistId = randomId();
     const albumId = randomId();
     const trackId = randomId();
-    const importId = randomId('import_');
+    const importId = randomId();
     const audioKey = `audio/${trackId}/original.${body.fileSuffix ?? 'mp3'}`;
     const coverKey = `art/${albumId}/cover.jpg`;
     const audioUploadUrl = await presignR2Put(audioKey, body.audioContentType ?? 'audio/mpeg', 900);
