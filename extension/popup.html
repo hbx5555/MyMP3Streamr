@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyMP3Streamr Upload</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>MyMP3Streamr</h1>
+        <button id="settingsButton" type="button">Settings</button>
+      </header>
+
+      <section id="setupPanel" class="panel hidden">
+        <h2>Setup Needed</h2>
+        <p>Set your Railway server URL and Admin API Key before uploading.</p>
+        <button id="openOptionsButton" type="button">Open settings</button>
+      </section>
+
+      <section id="clipPanel" class="panel hidden">
+        <div class="cover">
+          <img id="thumbnail" alt="YouTube thumbnail" />
+        </div>
+        <label>
+          Track title
+          <input id="titleInput" type="text" />
+        </label>
+        <label>
+          Artist
+          <input id="artistInput" type="text" />
+        </label>
+        <label>
+          Album
+          <input id="albumInput" type="text" />
+        </label>
+        <div class="actions">
+          <button id="cancelButton" type="button" class="secondary">Cancel</button>
+          <button id="uploadButton" type="button">Upload</button>
+        </div>
+      </section>
+
+      <section id="statusPanel" class="panel hidden">
+        <h2 id="statusTitle">Working</h2>
+        <p id="statusMessage">Preparing upload...</p>
+        <progress id="progress" max="100"></progress>
+        <button id="closeButton" type="button" class="secondary hidden">Close</button>
+      </section>
+
+      <section id="errorPanel" class="panel hidden">
+        <h2>Not Ready</h2>
+        <p id="errorMessage"></p>
+        <button id="errorCloseButton" type="button" class="secondary">Close</button>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

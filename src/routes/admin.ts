@@ -4,6 +4,7 @@ import { pool } from '../db/pool.js';
 import { createOrUpdateAlbum, createOrUpdateArtist, createOrUpdateTrack } from '../db/repositories.js';
 import { presignR2Put } from '../storage/r2.js';
 import { randomId } from '../utils/crypto.js';
+import { createYoutubeImport, getYoutubeImport } from '../services/youtube-import.js';
 
 function requireAdminKey(request: FastifyRequest, reply: FastifyReply) {
   const header = request.headers.authorization;
@@ -193,6 +194,49 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       audioUploadUrl,
       coverUploadUrl
     });
+  });
+
+  app.post('/admin/youtube-import', async (request, reply) => {
+    const body = request.body as {
+      sourceUrl: string;
+      title?: string;
+      artistName?: string;
+      albumTitle?: string;
+      thumbnailUrl?: string;
+      year?: number;
+      genre?: string;
+    };
+
+    if (!body?.sourceUrl) {
+      return reply.code(400).send({ ok: false, error: 'Missing sourceUrl' });
+    }
+
+    try {
+      const job = await createYoutubeImport({
+        sourceUrl: body.sourceUrl,
+        title: body.title,
+        artistName: body.artistName,
+        albumTitle: body.albumTitle,
+        thumbnailUrl: body.thumbnailUrl,
+        year: body.year,
+        genre: body.genre
+      });
+      return reply.send({ ok: true, ...job });
+    } catch (error) {
+      return reply.code(400).send({
+        ok: false,
+        error: error instanceof Error ? error.message : 'Unable to start YouTube import'
+      });
+    }
+  });
+
+  app.get('/admin/youtube-import/:importId', async (request, reply) => {
+    const params = request.params as { importId: string };
+    const job = await getYoutubeImport(params.importId);
+    if (!job) {
+      return reply.code(404).send({ ok: false, error: 'Import not found' });
+    }
+    return reply.send({ ok: true, job });
   });
 
   app.get('/admin/reindex', async () => {

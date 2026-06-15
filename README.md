@@ -126,3 +126,26 @@ curl -X POST "$APP_BASE_URL/admin/import" \
 
 The Railway app root URL now shows a simple landing page with a link to `/admin-panel`.
 That admin page is only a lightweight guide page; the actual ingestion actions still use the authenticated admin API endpoints.
+
+## YouTube extension import
+
+The repo includes a private Chrome extension in `extension/`.
+
+Server endpoints:
+
+- `POST /admin/youtube-import` starts a protected YouTube import job.
+- `GET /admin/youtube-import/:importId` returns job status.
+
+The server-side job uses `yt-dlp` and `ffmpeg` to extract an MP3, uploads the MP3 and thumbnail to R2, and saves catalog metadata to Postgres. The included `Dockerfile` installs those media tools for Railway.
+
+Chrome setup:
+
+1. Open `chrome://extensions`.
+2. Enable Developer mode.
+3. Click `Load unpacked`.
+4. Select the `extension/` folder.
+5. Open the extension options page.
+6. Set the Railway server URL and Admin API Key.
+7. Open a YouTube video and click the extension icon.
+
+The extension is intended for private-use imports into your authenticated MyMP3Streamr server. It does not expose a public import API.

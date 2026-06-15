@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "MyMP3Streamr Uploader",
+  "version": "0.1.0",
+  "description": "Send the current YouTube clip to your private MyMP3Streamr server.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Upload to MyMP3Streamr"
+  },
+  "options_page": "options.html",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ]
+}
