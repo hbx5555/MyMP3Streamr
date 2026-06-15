@@ -28,67 +28,80 @@ Use one dedicated R2 bucket, for example `mymp3streamr-media`, with keys like:
 
 When the Railway server is running:
 
-1. Create a track ID, album ID, and artist name in your notes.
-2. Request a signed upload URL for the MP3:
+1. Create a bootstrap payload:
 
 ```bash
-curl -X POST "$APP_BASE_URL/admin/upload-url" \
-  -H "Authorization: Bearer $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "key": "audio/<trackId>/original.mp3",
-    "contentType": "audio/mpeg"
-  }'
+cat > bootstrap.json <<'JSON'
+{
+  "artistName": "Test Artist",
+  "albumTitle": "Test Album",
+  "trackTitle": "Test Track",
+  "durationSeconds": 123,
+  "bitrate": 320,
+  "mimeType": "audio/mpeg",
+  "fileSuffix": "mp3",
+  "year": 2026,
+  "genre": "Test",
+  "sourceUrl": "https://example.com/source",
+  "sourceTitle": "Test Source"
+}
+JSON
 ```
 
-3. Upload the MP3 with the returned `url` using `PUT` and the same `Content-Type`:
+2. Bootstrap the import, which returns the generated IDs plus both upload URLs:
 
 ```bash
-curl -X PUT "$UPLOAD_URL" \
+curl -X POST "$APP_BASE_URL/admin/bootstrap-import" \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data-binary @bootstrap.json
+```
+
+3. Save the returned `importId`, `track.id`, `album.id`, `audioKey`, `coverKey`, `audioUploadUrl`, and `coverUploadUrl`.
+4. Upload the MP3:
+
+```bash
+curl -X PUT "$AUDIO_UPLOAD_URL" \
   -H "Content-Type: audio/mpeg" \
   --data-binary @./test-track.mp3
 ```
-4. Request a signed upload URL for the cover art:
+
+5. Upload the cover image:
 
 ```bash
-curl -X POST "$APP_BASE_URL/admin/upload-url" \
-  -H "Authorization: Bearer $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "key": "art/<albumId>/cover.jpg",
-    "contentType": "image/jpeg"
-  }'
-```
-
-5. Upload the cover image with `PUT`:
-
-```bash
-curl -X PUT "$COVER_URL" \
+curl -X PUT "$COVER_UPLOAD_URL" \
   -H "Content-Type: image/jpeg" \
   --data-binary @./cover.jpg
 ```
-6. Create or update the catalog metadata:
+
+6. Finalize the metadata with the real file size:
 
 ```bash
+FILE_SIZE=$(stat -f%z ./test-track.mp3)
+
 curl -X POST "$APP_BASE_URL/admin/import" \
   -H "Authorization: Bearer $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "artistName": "Test Artist",
-    "albumTitle": "Test Album",
-    "trackTitle": "Test Track",
-    "audioKey": "audio/<trackId>/original.mp3",
-    "thumbnailKey": "art/<albumId>/cover.jpg",
-    "durationSeconds": 123,
-    "bitrate": 320,
-    "mimeType": "audio/mpeg",
-    "fileSuffix": "mp3",
-    "fileSize": 1234567,
-    "sourceUrl": "https://example.com/source",
-    "sourceTitle": "Test Source",
-    "year": 2026,
-    "genre": "Test"
-  }'
+  -d "{
+    \"importId\": \"$IMPORT_ID\",
+    \"artistId\": \"$ARTIST_ID\",
+    \"albumId\": \"$ALBUM_ID\",
+    \"trackId\": \"$TRACK_ID\",
+    \"artistName\": \"Test Artist\",
+    \"albumTitle\": \"Test Album\",
+    \"trackTitle\": \"Test Track\",
+    \"audioKey\": \"$AUDIO_KEY\",
+    \"thumbnailKey\": \"$COVER_KEY\",
+    \"durationSeconds\": 123,
+    \"bitrate\": 320,
+    \"mimeType\": \"audio/mpeg\",
+    \"fileSuffix\": \"mp3\",
+    \"fileSize\": $FILE_SIZE,
+    \"sourceUrl\": \"https://example.com/source\",
+    \"sourceTitle\": \"Test Source\",
+    \"year\": 2026,
+    \"genre\": \"Test\"
+  }"
 ```
 
 7. Open the Android client and browse the library.
