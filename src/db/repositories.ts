@@ -82,7 +82,7 @@ export async function searchCatalog(search: string) {
 export async function createOrUpdateArtist(input: { id?: string; name: string; sortName?: string | null }) {
   const result = await query<ArtistRow>(
     `insert into artists (id, name, sort_name)
-     values (coalesce($1, gen_random_uuid()::text), $2, $3)
+     values (coalesce($1::uuid, gen_random_uuid()), $2, $3)
      on conflict (id) do update set name = excluded.name, sort_name = excluded.sort_name
      returning id, name, sort_name`,
     [input.id ?? null, input.name, input.sortName ?? null]
@@ -101,7 +101,7 @@ export async function createOrUpdateAlbum(input: {
 }) {
   const result = await query<AlbumRow>(
     `insert into albums (id, artist_id, title, sort_title, year, genre, cover_art_key)
-     values (coalesce($1, gen_random_uuid()::text), $2, $3, $4, $5, $6, $7)
+     values (coalesce($1::uuid, gen_random_uuid()), $2::uuid, $3, $4, $5, $6, $7)
      on conflict (id) do update set artist_id = excluded.artist_id, title = excluded.title, sort_title = excluded.sort_title, year = excluded.year, genre = excluded.genre, cover_art_key = excluded.cover_art_key
      returning id, artist_id, title, sort_title, year, genre, cover_art_key, track_count, duration_seconds`,
     [input.id ?? null, input.artistId, input.title, input.sortTitle ?? null, input.year ?? null, input.genre ?? null, input.coverArtKey ?? null]
@@ -132,7 +132,7 @@ export async function createOrUpdateTrack(input: {
     `insert into tracks (
       id, album_id, artist_id, title, sort_title, track_number, disc_number, duration_seconds, bitrate, mime_type, file_suffix, audio_key, file_size, checksum, source_url, source_title, source_thumbnail_key
     ) values (
-      coalesce($1, gen_random_uuid()::text), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+      coalesce($1::uuid, gen_random_uuid()), $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
     )
     on conflict (id) do update set
       album_id = excluded.album_id,

@@ -86,9 +86,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
              source_title = coalesce($4, source_title),
              thumbnail_key = coalesce($5, thumbnail_key),
              audio_key = coalesce($6, audio_key),
-             track_id = $7,
+             track_id = $7::uuid,
              updated_at = now()
-         where id = $1`,
+         where id = $1::uuid`,
         [
           body.importId,
           'complete',
@@ -153,7 +153,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
     await pool.query(
       `insert into imports (id, status, source_url, source_title, thumbnail_key, audio_key, created_at, updated_at)
-       values ($1, $2, $3, $4, $5, $6, now(), now())`,
+       values ($1::uuid, $2, $3, $4, $5, $6, now(), now())`,
       [importId, 'pending', body.sourceUrl ?? null, body.sourceTitle ?? null, coverKey, audioKey]
     );
 
