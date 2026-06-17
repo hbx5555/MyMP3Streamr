@@ -54,7 +54,6 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return reply.code(400).send({ ok: false, error: 'Invalid trackId' });
     }
 
-    const client = await pool.connect();
     const cleanupKeys = new Set<string>();
     const deletedImportIds: string[] = [];
     let albumDeleted = false;
@@ -68,18 +67,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     } | null = null;
     let albumRow: { id: string; artist_id: string; cover_art_key: string | null } | null = null;
 
-    const rollbackQuietly = async () => {
-      try {
-        await client.query('rollback');
-      } catch (rollbackError) {
-        request.log.error({ err: rollbackError, trackId }, 'rollback failed during media delete');
-      }
-    };
-
     try {
-      await client.query('begin');
-
-      const trackResult = await client.query<{
+      const trackResult = await pool.query<{
         id: string;
         album_id: string;
         artist_id: string | null;
@@ -89,30 +78,27 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         `select id, album_id, artist_id, audio_key, source_thumbnail_key
          from tracks
          where id = $1::uuid
-         limit 1
-         for update`,
+         limit 1`,
         [trackId]
       );
       mediaRow = trackResult.rows[0] ?? null;
       if (!mediaRow) {
-        await client.query('rollback');
         return reply.code(404).send({ ok: false, error: 'Media not found' });
       }
 
-      const albumResult = await client.query<{ id: string; artist_id: string; cover_art_key: string | null }>(
+      const albumResult = await pool.query<{ id: string; artist_id: string; cover_art_key: string | null }>(
         `select id, artist_id, cover_art_key
          from albums
          where id = $1::uuid
-         limit 1
-         for update`,
+         limit 1`,
         [mediaRow.album_id]
       );
       albumRow = albumResult.rows[0] ?? null;
       if (!albumRow) {
-        throw new Error('Album not found for media item');
+        return reply.code(404).send({ ok: false, error: 'Album not found for media item' });
       }
 
-      const importResult = await client.query<{ id: string }>(
+      const importResult = await pool.query<{ id: string }>(
         `delete from imports
          where track_id = $1::uuid
             or audio_key = $2
@@ -122,36 +108,31 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       );
       deletedImportIds.push(...importResult.rows.map((row) => row.id));
 
-      await client.query('delete from tracks where id = $1::uuid', [mediaRow.id]);
+      await pool.query('delete from tracks where id = $1::uuid', [mediaRow.id]);
 
-      const remainingTracks = await client.query<{ count: string }>(
+      const remainingTracks = await pool.query<{ count: string }>(
         'select count(*)::text as count from tracks where album_id = $1::uuid',
         [albumRow.id]
       );
       if (Number(remainingTracks.rows[0]?.count ?? '0') === 0) {
-        await client.query('delete from albums where id = $1::uuid', [albumRow.id]);
+        await pool.query('delete from albums where id = $1::uuid', [albumRow.id]);
         albumDeleted = true;
 
-        const remainingAlbums = await client.query<{ count: string }>(
+        const remainingAlbums = await pool.query<{ count: string }>(
           'select count(*)::text as count from albums where artist_id = $1::uuid',
           [albumRow.artist_id]
         );
         if (Number(remainingAlbums.rows[0]?.count ?? '0') === 0) {
-          await client.query('delete from artists where id = $1::uuid', [albumRow.artist_id]);
+          await pool.query('delete from artists where id = $1::uuid', [albumRow.artist_id]);
           artistDeleted = true;
         }
       }
-
-      await client.query('commit');
     } catch (error) {
-      await rollbackQuietly();
       request.log.error({ err: error, trackId }, 'failed to delete media');
       return reply.code(500).send({
         ok: false,
         error: error instanceof Error ? error.message : 'Unable to delete media'
       });
-    } finally {
-      client.release();
     }
 
     if (mediaRow) {
