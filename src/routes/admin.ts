@@ -68,6 +68,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     } | null = null;
     let albumRow: { id: string; artist_id: string; cover_art_key: string | null } | null = null;
 
+    const rollbackQuietly = async () => {
+      try {
+        await client.query('rollback');
+      } catch (rollbackError) {
+        request.log.error({ err: rollbackError, trackId }, 'rollback failed during media delete');
+      }
+    };
+
     try {
       await client.query('begin');
 
@@ -136,7 +144,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
       await client.query('commit');
     } catch (error) {
-      await client.query('rollback');
+      await rollbackQuietly();
       request.log.error({ err: error, trackId }, 'failed to delete media');
       return reply.code(500).send({
         ok: false,
