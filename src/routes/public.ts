@@ -1205,7 +1205,8 @@ function renderMediaManagerPage(appBaseUrl: string) {
           try {
             const response = await fetch(appBaseUrl + '/admin/media/' + encodeURIComponent(item.id) + '/delete', {
               method: 'POST',
-              headers: authHeaders()
+              headers: authHeaders(),
+              body: JSON.stringify({})
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok || data.ok === false) {
