@@ -26,11 +26,17 @@ async function main() {
   });
 
   app.setErrorHandler(async (error, request, reply) => {
+    const message = error instanceof Error ? error.message : 'Internal Server Error';
+    const stack = error instanceof Error ? error.stack : null;
+    console.error(`request failed ${request.method} ${request.url}: ${message}`);
+    if (stack) {
+      console.error(stack);
+    }
     request.log.error({ err: error }, 'request failed');
     if (reply.sent) return;
     return reply.status(500).send({
       ok: false,
-      error: 'Internal Server Error'
+      error: message
     });
   });
 

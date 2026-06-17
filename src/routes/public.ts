@@ -1203,8 +1203,8 @@ function renderMediaManagerPage(appBaseUrl: string) {
           card.style.opacity = '0.7';
           setStatus('Deleting ' + item.title + '...');
           try {
-            const response = await fetch(appBaseUrl + '/admin/media/' + encodeURIComponent(item.id), {
-              method: 'DELETE',
+            const response = await fetch(appBaseUrl + '/admin/media/' + encodeURIComponent(item.id) + '/delete', {
+              method: 'POST',
               headers: authHeaders()
             });
             const data = await response.json().catch(() => ({}));

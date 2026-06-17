@@ -44,7 +44,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({ ok: true, media: items });
   });
 
-  app.delete('/admin/media/:trackId', async (request, reply) => {
+  async function deleteMedia(request: FastifyRequest, reply: FastifyReply) {
     const params = request.params as { trackId: string };
     const trackId = params.trackId?.trim();
     if (!trackId) {
@@ -68,6 +68,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     let albumRow: { id: string; artist_id: string; cover_art_key: string | null } | null = null;
 
     try {
+      request.log.info({ trackId, stage: 'load-track' }, 'media delete started');
       const trackResult = await pool.query<{
         id: string;
         album_id: string;
@@ -86,6 +87,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         return reply.code(404).send({ ok: false, error: 'Media not found' });
       }
 
+      request.log.info({ trackId, albumId: mediaRow.album_id, stage: 'load-album' }, 'media delete loading album');
       const albumResult = await pool.query<{ id: string; artist_id: string; cover_art_key: string | null }>(
         `select id, artist_id, cover_art_key
          from albums
@@ -98,6 +100,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         return reply.code(404).send({ ok: false, error: 'Album not found for media item' });
       }
 
+      request.log.info({ trackId, stage: 'delete-imports' }, 'media delete removing import rows');
       const importResult = await pool.query<{ id: string }>(
         `delete from imports
          where track_id = $1::uuid
@@ -108,8 +111,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       );
       deletedImportIds.push(...importResult.rows.map((row) => row.id));
 
+      request.log.info({ trackId, stage: 'delete-track' }, 'media delete removing track row');
       await pool.query('delete from tracks where id = $1::uuid', [mediaRow.id]);
 
+      request.log.info({ trackId, albumId: albumRow.id, stage: 'maybe-delete-album' }, 'media delete checking album references');
       const remainingTracks = await pool.query<{ count: string }>(
         'select count(*)::text as count from tracks where album_id = $1::uuid',
         [albumRow.id]
@@ -118,6 +123,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         await pool.query('delete from albums where id = $1::uuid', [albumRow.id]);
         albumDeleted = true;
 
+        request.log.info({ trackId, artistId: albumRow.artist_id, stage: 'maybe-delete-artist' }, 'media delete checking artist references');
         const remainingAlbums = await pool.query<{ count: string }>(
           'select count(*)::text as count from albums where artist_id = $1::uuid',
           [albumRow.artist_id]
@@ -128,10 +134,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         }
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete media';
+      console.error(`media delete failed trackId=${trackId}: ${message}`);
       request.log.error({ err: error, trackId }, 'failed to delete media');
       return reply.code(500).send({
         ok: false,
-        error: error instanceof Error ? error.message : 'Unable to delete media'
+        error: message
       });
     }
 
@@ -149,6 +157,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
 
     const cleanupErrors: string[] = [];
+    request.log.info({ trackId, r2Keys: Array.from(cleanupKeys), stage: 'delete-r2' }, 'media delete removing R2 objects');
     await Promise.all(Array.from(cleanupKeys).map(async (key) => {
       try {
         await deleteR2Object(key);
@@ -168,7 +177,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       },
       ...(cleanupErrors.length > 0 ? { warnings: cleanupErrors } : {})
     });
-  });
+  }
+
+  app.delete('/admin/media/:trackId', deleteMedia);
+  app.post('/admin/media/:trackId/delete', deleteMedia);
 
   app.post('/admin/import', async (request, reply) => {
     const body = request.body as {
