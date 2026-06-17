@@ -17,6 +17,10 @@ function requireAdminKey(request: FastifyRequest, reply: FastifyReply) {
   return true;
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 export async function registerAdminRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
     if (request.url.startsWith('/admin/')) {
@@ -45,6 +49,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const trackId = params.trackId?.trim();
     if (!trackId) {
       return reply.code(400).send({ ok: false, error: 'Missing trackId' });
+    }
+    if (!isUuid(trackId)) {
+      return reply.code(400).send({ ok: false, error: 'Invalid trackId' });
     }
 
     const client = await pool.connect();
@@ -130,7 +137,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       await client.query('commit');
     } catch (error) {
       await client.query('rollback');
-      throw error;
+      request.log.error({ err: error, trackId }, 'failed to delete media');
+      return reply.code(500).send({
+        ok: false,
+        error: error instanceof Error ? error.message : 'Unable to delete media'
+      });
     } finally {
       client.release();
     }
