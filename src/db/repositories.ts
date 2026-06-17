@@ -63,6 +63,64 @@ export async function listTracks(): Promise<TrackRow[]> {
   return result.rows;
 }
 
+export async function listMediaItems(): Promise<Array<{
+  id: string;
+  title: string;
+  description: string;
+  artist_name: string;
+  album_title: string;
+  album_year: number | null;
+  album_genre: string | null;
+  duration_seconds: number;
+  bitrate: number | null;
+  audio_key: string;
+  cover_key: string | null;
+  source_url: string | null;
+  source_title: string | null;
+  created_at: Date;
+}>> {
+  const result = await query<{
+    id: string;
+    title: string;
+    description: string;
+    artist_name: string;
+    album_title: string;
+    album_year: number | null;
+    album_genre: string | null;
+    duration_seconds: number;
+    bitrate: number | null;
+    audio_key: string;
+    cover_key: string | null;
+    source_url: string | null;
+    source_title: string | null;
+    created_at: Date;
+  }>(
+    `select
+       t.id,
+       t.title,
+       coalesce(
+         nullif(t.source_title, ''),
+         t.title
+       ) as description,
+       a.name as artist_name,
+       al.title as album_title,
+       al.year as album_year,
+       al.genre as album_genre,
+       t.duration_seconds,
+       t.bitrate,
+       t.audio_key,
+       coalesce(t.source_thumbnail_key, al.cover_art_key) as cover_key,
+       t.source_url,
+       t.source_title,
+       t.created_at
+     from tracks t
+     join albums al on al.id = t.album_id
+     join artists a on a.id = al.artist_id
+     order by t.created_at desc, t.title asc`
+  );
+  return result.rows;
+}
+
 export async function getTrackById(id: string): Promise<TrackRow | null> {
   const result = await query<TrackRow>(
     'select id, album_id, artist_id, title, sort_title, track_number, disc_number, duration_seconds, bitrate, mime_type, file_suffix, audio_key, file_size, checksum, source_url, source_title, source_thumbnail_key from tracks where id = $1 limit 1',

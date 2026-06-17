@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config.js';
 import { pool } from '../db/pool.js';
-import { createOrUpdateAlbum, createOrUpdateArtist, createOrUpdateTrack } from '../db/repositories.js';
-import { presignR2Put } from '../storage/r2.js';
+import { createOrUpdateAlbum, createOrUpdateArtist, createOrUpdateTrack, listMediaItems } from '../db/repositories.js';
+import { deleteR2Object, presignR2Get, presignR2Put } from '../storage/r2.js';
 import { randomId } from '../utils/crypto.js';
 import { createYoutubeImport, getYoutubeImport } from '../services/youtube-import.js';
 
@@ -25,6 +25,145 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         return;
       }
     }
+  });
+
+  app.get('/admin/media', async (_request, reply) => {
+    const media = await listMediaItems();
+    const items = await Promise.all(media.map(async (item) => ({
+      ...item,
+      coverUrl: item.cover_key ? await presignR2Get(item.cover_key, 1800) : null
+    })));
+    return reply.send({ ok: true, media: items });
+  });
+
+  app.delete('/admin/media/:trackId', async (request, reply) => {
+    const params = request.params as { trackId: string };
+    const trackId = params.trackId?.trim();
+    if (!trackId) {
+      return reply.code(400).send({ ok: false, error: 'Missing trackId' });
+    }
+
+    const client = await pool.connect();
+    const cleanupKeys = new Set<string>();
+    const deletedImportIds: string[] = [];
+    let albumDeleted = false;
+    let artistDeleted = false;
+    let mediaRow: {
+      id: string;
+      album_id: string;
+      artist_id: string | null;
+      audio_key: string;
+      source_thumbnail_key: string | null;
+    } | null = null;
+    let albumRow: { id: string; artist_id: string; cover_art_key: string | null } | null = null;
+
+    try {
+      await client.query('begin');
+
+      const trackResult = await client.query<{
+        id: string;
+        album_id: string;
+        artist_id: string | null;
+        audio_key: string;
+        source_thumbnail_key: string | null;
+      }>(
+        `select id, album_id, artist_id, audio_key, source_thumbnail_key
+         from tracks
+         where id = $1::uuid
+         limit 1
+         for update`,
+        [trackId]
+      );
+      mediaRow = trackResult.rows[0] ?? null;
+      if (!mediaRow) {
+        await client.query('rollback');
+        return reply.code(404).send({ ok: false, error: 'Media not found' });
+      }
+
+      const albumResult = await client.query<{ id: string; artist_id: string; cover_art_key: string | null }>(
+        `select id, artist_id, cover_art_key
+         from albums
+         where id = $1::uuid
+         limit 1
+         for update`,
+        [mediaRow.album_id]
+      );
+      albumRow = albumResult.rows[0] ?? null;
+      if (!albumRow) {
+        throw new Error('Album not found for media item');
+      }
+
+      const importResult = await client.query<{ id: string }>(
+        `delete from imports
+         where track_id = $1::uuid
+            or audio_key = $2
+            or thumbnail_key = $3
+         returning id`,
+        [mediaRow.id, mediaRow.audio_key, mediaRow.source_thumbnail_key]
+      );
+      deletedImportIds.push(...importResult.rows.map((row) => row.id));
+
+      await client.query('delete from tracks where id = $1::uuid', [mediaRow.id]);
+
+      const remainingTracks = await client.query<{ count: string }>(
+        'select count(*)::text as count from tracks where album_id = $1::uuid',
+        [albumRow.id]
+      );
+      if (Number(remainingTracks.rows[0]?.count ?? '0') === 0) {
+        await client.query('delete from albums where id = $1::uuid', [albumRow.id]);
+        albumDeleted = true;
+
+        const remainingAlbums = await client.query<{ count: string }>(
+          'select count(*)::text as count from albums where artist_id = $1::uuid',
+          [albumRow.artist_id]
+        );
+        if (Number(remainingAlbums.rows[0]?.count ?? '0') === 0) {
+          await client.query('delete from artists where id = $1::uuid', [albumRow.artist_id]);
+          artistDeleted = true;
+        }
+      }
+
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    if (mediaRow) {
+      cleanupKeys.add(mediaRow.audio_key);
+      if (mediaRow.source_thumbnail_key && (!albumDeleted || mediaRow.source_thumbnail_key !== albumRow?.cover_art_key)) {
+        cleanupKeys.add(mediaRow.source_thumbnail_key);
+      }
+    }
+    if (albumDeleted && albumRow?.cover_art_key) {
+      cleanupKeys.add(albumRow.cover_art_key);
+    }
+    for (const importId of deletedImportIds) {
+      cleanupKeys.add(`imports/${importId}/source.json`);
+    }
+
+    const cleanupErrors: string[] = [];
+    await Promise.all(Array.from(cleanupKeys).map(async (key) => {
+      try {
+        await deleteR2Object(key);
+      } catch (error) {
+        cleanupErrors.push(error instanceof Error ? error.message : `Failed to delete ${key}`);
+      }
+    }));
+
+    return reply.send({
+      ok: true,
+      deleted: {
+        trackId: mediaRow.id,
+        albumDeleted,
+        artistDeleted,
+        importCount: deletedImportIds.length,
+        r2KeysDeleted: Array.from(cleanupKeys)
+      },
+      ...(cleanupErrors.length > 0 ? { warnings: cleanupErrors } : {})
+    });
   });
 
   app.post('/admin/import', async (request, reply) => {

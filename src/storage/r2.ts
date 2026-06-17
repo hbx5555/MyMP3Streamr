@@ -1,4 +1,4 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from '../config.js';
 
@@ -34,6 +34,14 @@ export async function putR2Object(key: string, body: Buffer | Uint8Array | strin
     Key: key,
     Body: body,
     ContentType: contentType
+  }));
+}
+
+export async function deleteR2Object(key: string) {
+  const r2 = getR2Client();
+  await r2.send(new DeleteObjectCommand({
+    Bucket: getR2Config().R2_BUCKET_NAME,
+    Key: key
   }));
 }
 

@@ -245,7 +245,8 @@ function renderLandingPage(appBaseUrl: string) {
       <h1>My MP3 Streamer</h1>
       <p>A self-hosted music server for streaming MP3s from Cloudflare R2 through Railway.</p>
       <div class="actions">
-        <a class="button primary" href="/admin-panel">Open admin panel</a>
+        <a class="button primary" href="/admin-panel">Add media</a>
+        <a class="button" href="/media-manager">Media Manager</a>
         <a class="button" href="/health">Health check</a>
       </div>
       <div class="meta">
@@ -449,10 +450,13 @@ function renderAdminPanelPage(appBaseUrl: string) {
     <main>
       <header>
         <div>
-          <h1>My MP3 Streamer Admin</h1>
+          <h1>Add media</h1>
           <p class="subtle">Upload audio, optional cover art, and catalog metadata into R2 and Postgres.</p>
         </div>
-        <a href="/">Back to home</a>
+        <div class="actions" style="margin-top: 0">
+          <a href="/media-manager">Media Manager</a>
+          <a href="/">Back to home</a>
+        </div>
       </header>
 
       <form id="uploadForm">
@@ -506,7 +510,7 @@ function renderAdminPanelPage(appBaseUrl: string) {
             </label>
           </div>
           <div class="actions">
-            <button id="submitButton" type="submit">Upload track</button>
+            <button id="submitButton" type="submit">Add media</button>
             <div id="status" class="status" role="status" aria-live="polite"></div>
           </div>
         </section>
@@ -549,16 +553,18 @@ function renderAdminPanelPage(appBaseUrl: string) {
 
       function setBusy(isBusy) {
         submitButton.disabled = isBusy;
-        submitButton.textContent = isBusy ? 'Uploading...' : 'Upload track';
+        submitButton.textContent = isBusy ? 'Uploading...' : 'Add media';
       }
 
       function updateAdminKeyNote() {
         if (adminKey.value.trim()) {
           adminKeyNote.textContent = 'Key entered for this page session. It will stay until refresh or close.';
           adminKeyNote.className = 'field-note ready';
+          window.localStorage.setItem('adminKey', adminKey.value.trim());
         } else {
           adminKeyNote.textContent = 'Enter once per page session. It is not saved after refresh.';
           adminKeyNote.className = 'field-note';
+          window.localStorage.removeItem('adminKey');
         }
       }
 
@@ -613,6 +619,7 @@ function renderAdminPanelPage(appBaseUrl: string) {
         return data;
       }
 
+      adminKey.value = window.localStorage.getItem('adminKey') || '';
       adminKey.addEventListener('input', updateAdminKeyNote);
       updateAdminKeyNote();
 
@@ -725,6 +732,410 @@ function renderAdminPanelPage(appBaseUrl: string) {
 </html>`;
 }
 
+function renderMediaManagerPage(appBaseUrl: string) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My MP3 Streamer Media Manager</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0e1116;
+        --panel: #171b23;
+        --panel-soft: #202634;
+        --line: rgba(255,255,255,0.1);
+        --text: #f5f7fb;
+        --muted: #a8b0bc;
+        --accent: #7dd3fc;
+        --accent-strong: #2563eb;
+        --danger: #f87171;
+        --ok: #86efac;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Avenir Next, ui-sans-serif, system-ui, sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(37,99,235,0.18), transparent 30%),
+          radial-gradient(circle at top right, rgba(125,211,252,0.12), transparent 28%),
+          repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 84px),
+          var(--bg);
+        color: var(--text);
+      }
+      main {
+        width: min(1240px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0 44px;
+      }
+      header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 20px;
+        padding-bottom: 22px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 760;
+      }
+      .subtle {
+        color: var(--muted);
+        margin: 8px 0 0;
+        line-height: 1.5;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .toolbar a,
+      .toolbar button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        text-decoration: none;
+        padding: 0 16px;
+        font: inherit;
+      }
+      .toolbar .primary {
+        background: linear-gradient(135deg, var(--accent-strong), #0ea5e9);
+        border-color: transparent;
+      }
+      .panel {
+        margin-top: 24px;
+        background: color-mix(in srgb, var(--panel) 92%, transparent);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 20px;
+      }
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+      .key-row {
+        display: grid;
+        gap: 8px;
+        max-width: 420px;
+        margin-bottom: 16px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .key-row input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel-soft);
+        color: var(--text);
+        font: inherit;
+        padding: 11px 14px;
+        min-height: 44px;
+      }
+      .panel-head h2 {
+        margin: 0;
+        font-size: 0.9rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .panel-head p {
+        margin: 6px 0 0;
+        color: var(--muted);
+      }
+      .status {
+        color: var(--muted);
+        min-height: 24px;
+      }
+      .status.ok { color: var(--ok); }
+      .status.error { color: var(--danger); }
+      .media-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .card {
+        position: relative;
+        overflow: hidden;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+        box-shadow: 0 18px 40px rgba(0,0,0,0.22);
+      }
+      .card button.delete {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        border: 0;
+        background: rgba(15,23,42,0.85);
+        color: white;
+        cursor: pointer;
+        font-size: 1.2rem;
+        line-height: 1;
+      }
+      .cover {
+        aspect-ratio: 1 / 1;
+        background: var(--panel-soft);
+        border-bottom: 1px solid var(--line);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      .cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .cover .fallback {
+        color: var(--muted);
+        text-align: center;
+        padding: 20px;
+        line-height: 1.4;
+      }
+      .content {
+        padding: 16px;
+        display: grid;
+        gap: 10px;
+      }
+      .title {
+        margin: 0;
+        font-size: 1.05rem;
+        line-height: 1.3;
+      }
+      .desc {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+        font-size: 0.95rem;
+      }
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 4px 10px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        background: rgba(255,255,255,0.03);
+      }
+      .empty {
+        color: var(--muted);
+        border: 1px dashed var(--line);
+        border-radius: 18px;
+        padding: 28px;
+      }
+      @media (max-width: 980px) {
+        .media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @media (max-width: 720px) {
+        main { padding: 20px 0 32px; }
+        header { align-items: start; flex-direction: column; }
+        .media-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Media Manager</h1>
+          <p class="subtle">Review uploaded media cards and remove the matching R2 objects and SQL records in one step.</p>
+        </div>
+        <div class="toolbar">
+          <a class="primary" href="/admin-panel">Add media</a>
+          <a href="/">Back to home</a>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Uploaded media</h2>
+            <p id="summary">Loading media...</p>
+          </div>
+          <div id="status" class="status" role="status" aria-live="polite"></div>
+        </div>
+        <label class="key-row">
+          Admin API key
+          <input id="adminKey" type="password" autocomplete="off" placeholder="Enter admin key to load and delete media" />
+        </label>
+        <div id="mediaGrid" class="media-grid"></div>
+      </section>
+    </main>
+    <script>
+      const appBaseUrl = ${JSON.stringify(appBaseUrl)};
+      const mediaGrid = document.getElementById('mediaGrid');
+      const summary = document.getElementById('summary');
+      const statusEl = document.getElementById('status');
+      const adminKey = document.getElementById('adminKey');
+
+      function authHeaders() {
+        const key = adminKey.value.trim() || window.localStorage.getItem('adminKey') || '';
+        if (adminKey.value.trim()) {
+          window.localStorage.setItem('adminKey', adminKey.value.trim());
+        }
+        return {
+          Authorization: 'Bearer ' + key,
+          'Content-Type': 'application/json'
+        };
+      }
+
+      function setStatus(message, type) {
+        statusEl.textContent = message;
+        statusEl.className = 'status' + (type ? ' ' + type : '');
+      }
+
+      function formatDuration(seconds) {
+        const total = Number(seconds) || 0;
+        const mins = Math.floor(total / 60);
+        const secs = total % 60;
+        return mins + ':' + String(secs).padStart(2, '0');
+      }
+
+      function renderCard(item) {
+        const card = document.createElement('article');
+        card.className = 'card';
+        card.dataset.trackId = item.id;
+
+        const cover = document.createElement('div');
+        cover.className = 'cover';
+        if (item.coverUrl) {
+          const img = document.createElement('img');
+          img.src = item.coverUrl;
+          img.alt = item.title + ' cover';
+          cover.appendChild(img);
+        } else {
+          const fallback = document.createElement('div');
+          fallback.className = 'fallback';
+          fallback.textContent = 'No cover art available';
+          cover.appendChild(fallback);
+        }
+
+        const content = document.createElement('div');
+        content.className = 'content';
+        content.innerHTML = \`
+          <h3 class="title"></h3>
+          <p class="desc"></p>
+          <div class="meta"></div>
+        \`;
+        content.querySelector('.title').textContent = item.title;
+        content.querySelector('.desc').textContent = item.artist_name + ' • ' + item.album_title + (item.source_title && item.source_title !== item.title ? ' • ' + item.source_title : '');
+
+        const meta = content.querySelector('.meta');
+        const pills = [
+          item.album_year ? String(item.album_year) : null,
+          item.album_genre || null,
+          formatDuration(item.duration_seconds),
+          item.bitrate ? item.bitrate + ' kbps' : null
+        ].filter(Boolean);
+        for (const pillText of pills) {
+          const pill = document.createElement('span');
+          pill.className = 'pill';
+          pill.textContent = pillText;
+          meta.appendChild(pill);
+        }
+
+        const deleteButton = document.createElement('button');
+        deleteButton.className = 'delete';
+        deleteButton.type = 'button';
+        deleteButton.textContent = '×';
+        deleteButton.setAttribute('aria-label', 'Delete ' + item.title);
+        deleteButton.addEventListener('click', async () => {
+          if (!window.confirm('Delete "' + item.title + '" and its uploaded files?')) {
+            return;
+          }
+
+          deleteButton.disabled = true;
+          setStatus('Deleting ' + item.title + '...');
+          try {
+            const response = await fetch(appBaseUrl + '/admin/media/' + encodeURIComponent(item.id), {
+              method: 'DELETE',
+              headers: authHeaders()
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) {
+              throw new Error(data.error || 'Delete failed with status ' + response.status);
+            }
+            card.remove();
+            const remaining = mediaGrid.children.length;
+            summary.textContent = remaining + ' media item' + (remaining === 1 ? '' : 's') + ' remaining';
+            setStatus('Deleted ' + item.title + '.', 'ok');
+            if (remaining === 0) {
+              mediaGrid.innerHTML = '<div class="empty">No uploaded media found.</div>';
+            }
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Delete failed', 'error');
+            deleteButton.disabled = false;
+          }
+        });
+
+        card.appendChild(deleteButton);
+        card.appendChild(cover);
+        card.appendChild(content);
+        return card;
+      }
+
+      async function loadMedia() {
+        mediaGrid.innerHTML = '';
+        summary.textContent = 'Loading media...';
+        try {
+          const response = await fetch(appBaseUrl + '/admin/media', {
+            headers: authHeaders()
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data.ok === false) {
+            throw new Error(data.error || 'Failed to load media');
+          }
+
+          const items = data.media || [];
+          summary.textContent = items.length + ' media item' + (items.length === 1 ? '' : 's') + ' found';
+          if (!items.length) {
+            mediaGrid.innerHTML = '<div class="empty">No uploaded media found.</div>';
+            return;
+          }
+
+          for (const item of items) {
+            mediaGrid.appendChild(renderCard(item));
+          }
+        } catch (error) {
+          summary.textContent = 'Unable to load media';
+          mediaGrid.innerHTML = '<div class="empty">Media list could not be loaded.</div>';
+          setStatus(error instanceof Error ? error.message : 'Failed to load media', 'error');
+        }
+      }
+
+      adminKey.value = window.localStorage.getItem('adminKey') || '';
+      adminKey.addEventListener('input', () => {
+        if (adminKey.value.trim()) {
+          window.localStorage.setItem('adminKey', adminKey.value.trim());
+        } else {
+          window.localStorage.removeItem('adminKey');
+        }
+      });
+      loadMedia();
+    </script>
+  </body>
+</html>`;
+}
+
 export async function registerPublicRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
     reply.header('Content-Type', 'text/html; charset=utf-8');
@@ -734,6 +1145,11 @@ export async function registerPublicRoutes(app: FastifyInstance) {
   app.get('/admin-panel', async (_request, reply) => {
     reply.header('Content-Type', 'text/html; charset=utf-8');
     return reply.send(renderAdminPanelPage(config.APP_BASE_URL));
+  });
+
+  app.get('/media-manager', async (_request, reply) => {
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    return reply.send(renderMediaManagerPage(config.APP_BASE_URL));
   });
 
   app.get('/health', async () => ({
