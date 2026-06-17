@@ -947,26 +947,11 @@ function renderMediaManagerPage(appBaseUrl: string) {
         gap: 16px;
       }
       .card {
-        position: relative;
         overflow: hidden;
         border-radius: 18px;
         border: 1px solid var(--line);
         background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
         box-shadow: 0 18px 40px rgba(0,0,0,0.22);
-      }
-      .card button.delete {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        width: 36px;
-        height: 36px;
-        border-radius: 999px;
-        border: 0;
-        background: rgba(15,23,42,0.85);
-        color: white;
-        cursor: pointer;
-        font-size: 1.2rem;
-        line-height: 1;
       }
       .cover {
         aspect-ratio: 1 / 1;
@@ -1008,6 +993,28 @@ function renderMediaManagerPage(appBaseUrl: string) {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
+      }
+      .card-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: flex-end;
+        margin-top: 6px;
+      }
+      .card-actions button.delete {
+        border: 0;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+        color: white;
+        font: inherit;
+        font-weight: 700;
+        padding: 10px 14px;
+        min-height: 40px;
+        cursor: pointer;
+      }
+      .card-actions button.delete:disabled {
+        opacity: 0.72;
+        cursor: wait;
       }
       .pill {
         border: 1px solid var(--line);
@@ -1171,7 +1178,7 @@ function renderMediaManagerPage(appBaseUrl: string) {
         const deleteButton = document.createElement('button');
         deleteButton.className = 'delete';
         deleteButton.type = 'button';
-        deleteButton.textContent = '×';
+        deleteButton.textContent = 'Delete media';
         deleteButton.setAttribute('aria-label', 'Delete ' + item.title);
         deleteButton.addEventListener('click', async () => {
           if (!window.confirm('Delete "' + item.title + '" and its uploaded files?')) {
@@ -1202,9 +1209,12 @@ function renderMediaManagerPage(appBaseUrl: string) {
           }
         });
 
-        card.appendChild(deleteButton);
         card.appendChild(cover);
         card.appendChild(content);
+        const actions = document.createElement('div');
+        actions.className = 'card-actions';
+        actions.appendChild(deleteButton);
+        content.appendChild(actions);
         return card;
       }
 
