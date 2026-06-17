@@ -1016,6 +1016,14 @@ function renderMediaManagerPage(appBaseUrl: string) {
         opacity: 0.72;
         cursor: wait;
       }
+      .card-status {
+        margin-right: auto;
+        font-size: 0.84rem;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+      .card-status.error { color: var(--danger); }
+      .card-status.ok { color: var(--ok); }
       .pill {
         border: 1px solid var(--line);
         border-radius: 999px;
@@ -1175,6 +1183,10 @@ function renderMediaManagerPage(appBaseUrl: string) {
           meta.appendChild(pill);
         }
 
+        const cardStatus = document.createElement('span');
+        cardStatus.className = 'card-status';
+        cardStatus.textContent = 'Ready to delete';
+
         const deleteButton = document.createElement('button');
         deleteButton.className = 'delete';
         deleteButton.type = 'button';
@@ -1186,6 +1198,9 @@ function renderMediaManagerPage(appBaseUrl: string) {
           }
 
           deleteButton.disabled = true;
+          cardStatus.textContent = 'Deleting...';
+          cardStatus.className = 'card-status';
+          card.style.opacity = '0.7';
           setStatus('Deleting ' + item.title + '...');
           try {
             const response = await fetch(appBaseUrl + '/admin/media/' + encodeURIComponent(item.id), {
@@ -1196,15 +1211,21 @@ function renderMediaManagerPage(appBaseUrl: string) {
             if (!response.ok || data.ok === false) {
               throw new Error(data.error || 'Delete failed with status ' + response.status);
             }
-            card.remove();
-            const remaining = mediaGrid.children.length;
-            summary.textContent = remaining + ' media item' + (remaining === 1 ? '' : 's') + ' remaining';
-            setStatus('Deleted ' + item.title + '.', 'ok');
-            if (remaining === 0) {
-              mediaGrid.innerHTML = '<div class="empty">No uploaded media found.</div>';
+            if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+              setStatus('Deleted ' + item.title + ' with cleanup warnings.', 'error');
+              cardStatus.textContent = data.warnings[0];
+              cardStatus.className = 'card-status error';
+            } else {
+              setStatus('Deleted ' + item.title + '.', 'ok');
+              cardStatus.textContent = 'Deleted';
+              cardStatus.className = 'card-status ok';
             }
+            await loadMedia();
           } catch (error) {
+            card.style.opacity = '1';
             setStatus(error instanceof Error ? error.message : 'Delete failed', 'error');
+            cardStatus.textContent = error instanceof Error ? error.message : 'Delete failed';
+            cardStatus.className = 'card-status error';
             deleteButton.disabled = false;
           }
         });
@@ -1213,6 +1234,7 @@ function renderMediaManagerPage(appBaseUrl: string) {
         card.appendChild(content);
         const actions = document.createElement('div');
         actions.className = 'card-actions';
+        actions.appendChild(cardStatus);
         actions.appendChild(deleteButton);
         content.appendChild(actions);
         return card;
