@@ -27,6 +27,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
   });
 
+  app.get('/admin/auth-check', async () => {
+    return { ok: true, authenticated: true };
+  });
+
   app.get('/admin/media', async (_request, reply) => {
     const media = await listMediaItems();
     const items = await Promise.all(media.map(async (item) => ({

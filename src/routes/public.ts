@@ -344,6 +344,25 @@ function renderAdminPanelPage(appBaseUrl: string) {
         font-size: 0.92rem;
       }
       label.full { grid-column: 1 / -1; }
+      .key-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .key-tools button {
+        min-height: 40px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: var(--accent-strong);
+      }
+      .key-status {
+        font-size: 0.84rem;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+      .key-status.ok { color: var(--ok); }
+      .key-status.error { color: var(--danger); }
       .field-note {
         color: var(--muted);
         font-size: 0.84rem;
@@ -464,9 +483,13 @@ function renderAdminPanelPage(appBaseUrl: string) {
           <h2>Track Upload</h2>
           <div class="grid">
             <label class="full">
-              Admin API key
+              Upload key
               <input id="adminKey" name="adminKey" type="password" autocomplete="off" required />
               <span id="adminKeyNote" class="field-note">Enter once per page session. It is not saved after refresh.</span>
+              <div class="key-tools">
+                <button id="checkKeyButton" type="button">Check key</button>
+                <span id="keyStatus" class="key-status">Not checked yet</span>
+              </div>
             </label>
             <label class="full">
               MP3 file
@@ -535,6 +558,8 @@ function renderAdminPanelPage(appBaseUrl: string) {
       const form = document.getElementById('uploadForm');
       const adminKey = document.getElementById('adminKey');
       const adminKeyNote = document.getElementById('adminKeyNote');
+      const checkKeyButton = document.getElementById('checkKeyButton');
+      const keyStatus = document.getElementById('keyStatus');
       const audioFile = document.getElementById('audioFile');
       const coverFile = document.getElementById('coverFile');
       const trackTitle = document.getElementById('trackTitle');
@@ -561,10 +586,14 @@ function renderAdminPanelPage(appBaseUrl: string) {
           adminKeyNote.textContent = 'Key entered for this page session. It will stay until refresh or close.';
           adminKeyNote.className = 'field-note ready';
           window.localStorage.setItem('adminKey', adminKey.value.trim());
+          keyStatus.textContent = 'Key entered, not yet checked.';
+          keyStatus.className = 'key-status';
         } else {
           adminKeyNote.textContent = 'Enter once per page session. It is not saved after refresh.';
           adminKeyNote.className = 'field-note';
           window.localStorage.removeItem('adminKey');
+          keyStatus.textContent = 'Not checked yet';
+          keyStatus.className = 'key-status';
         }
       }
 
@@ -619,9 +648,40 @@ function renderAdminPanelPage(appBaseUrl: string) {
         return data;
       }
 
+      async function checkAdminKey() {
+        const key = adminKey.value.trim();
+        if (!key) {
+          keyStatus.textContent = 'Enter an upload key first.';
+          keyStatus.className = 'key-status error';
+          return;
+        }
+
+        keyStatus.textContent = 'Checking key...';
+        keyStatus.className = 'key-status';
+        try {
+          const response = await fetch(appBaseUrl + '/admin/auth-check', {
+            headers: {
+              Authorization: 'Bearer ' + key
+            }
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data.ok === false) {
+            throw new Error(data.error || 'Unauthorized');
+          }
+          keyStatus.textContent = 'Key accepted.';
+          keyStatus.className = 'key-status ok';
+        } catch (error) {
+          keyStatus.textContent = error instanceof Error ? error.message : 'Unauthorized';
+          keyStatus.className = 'key-status error';
+        }
+      }
+
       adminKey.value = window.localStorage.getItem('adminKey') || '';
       adminKey.addEventListener('input', updateAdminKeyNote);
       updateAdminKeyNote();
+      checkKeyButton.addEventListener('click', () => {
+        checkAdminKey().catch(() => {});
+      });
 
       audioFile.addEventListener('change', () => {
         const file = audioFile.files && audioFile.files[0];
@@ -843,6 +903,27 @@ function renderMediaManagerPage(appBaseUrl: string) {
         padding: 11px 14px;
         min-height: 44px;
       }
+      .key-row .key-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .key-row .key-tools button {
+        min-height: 40px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: var(--accent-strong);
+        border: 0;
+        color: white;
+      }
+      .key-row .key-status {
+        font-size: 0.84rem;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+      .key-row .key-status.ok { color: var(--ok); }
+      .key-row .key-status.error { color: var(--danger); }
       .panel-head h2 {
         margin: 0;
         font-size: 0.9rem;
@@ -974,8 +1055,12 @@ function renderMediaManagerPage(appBaseUrl: string) {
           <div id="status" class="status" role="status" aria-live="polite"></div>
         </div>
         <label class="key-row">
-          Admin API key
+          Upload key
           <input id="adminKey" type="password" autocomplete="off" placeholder="Enter admin key to load and delete media" />
+          <div class="key-tools">
+            <button id="checkKeyButton" type="button">Check key</button>
+            <span id="keyStatus" class="key-status">Not checked yet</span>
+          </div>
         </label>
         <div id="mediaGrid" class="media-grid"></div>
       </section>
@@ -986,6 +1071,8 @@ function renderMediaManagerPage(appBaseUrl: string) {
       const summary = document.getElementById('summary');
       const statusEl = document.getElementById('status');
       const adminKey = document.getElementById('adminKey');
+      const checkKeyButton = document.getElementById('checkKeyButton');
+      const keyStatus = document.getElementById('keyStatus');
 
       function authHeaders() {
         const key = adminKey.value.trim() || window.localStorage.getItem('adminKey') || '';
@@ -996,6 +1083,34 @@ function renderMediaManagerPage(appBaseUrl: string) {
           Authorization: 'Bearer ' + key,
           'Content-Type': 'application/json'
         };
+      }
+
+      async function checkAdminKey() {
+        const key = adminKey.value.trim();
+        if (!key) {
+          keyStatus.textContent = 'Enter an upload key first.';
+          keyStatus.className = 'key-status error';
+          return;
+        }
+
+        keyStatus.textContent = 'Checking key...';
+        keyStatus.className = 'key-status';
+        try {
+          const response = await fetch(appBaseUrl + '/admin/auth-check', {
+            headers: {
+              Authorization: 'Bearer ' + key
+            }
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data.ok === false) {
+            throw new Error(data.error || 'Unauthorized');
+          }
+          keyStatus.textContent = 'Key accepted.';
+          keyStatus.className = 'key-status ok';
+        } catch (error) {
+          keyStatus.textContent = error instanceof Error ? error.message : 'Unauthorized';
+          keyStatus.className = 'key-status error';
+        }
       }
 
       function setStatus(message, type) {
@@ -1126,9 +1241,16 @@ function renderMediaManagerPage(appBaseUrl: string) {
       adminKey.addEventListener('input', () => {
         if (adminKey.value.trim()) {
           window.localStorage.setItem('adminKey', adminKey.value.trim());
+          keyStatus.textContent = 'Key entered, not yet checked.';
+          keyStatus.className = 'key-status';
         } else {
           window.localStorage.removeItem('adminKey');
+          keyStatus.textContent = 'Not checked yet';
+          keyStatus.className = 'key-status';
         }
+      });
+      checkKeyButton.addEventListener('click', () => {
+        checkAdminKey().catch(() => {});
       });
       loadMedia();
     </script>
