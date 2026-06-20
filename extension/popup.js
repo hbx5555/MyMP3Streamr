@@ -3,6 +3,7 @@ const clipPanel = document.getElementById('clipPanel');
 const statusPanel = document.getElementById('statusPanel');
 const errorPanel = document.getElementById('errorPanel');
 const thumbnail = document.getElementById('thumbnail');
+const statusThumbnail = document.getElementById('statusThumbnail');
 const titleInput = document.getElementById('titleInput');
 const artistInput = document.getElementById('artistInput');
 const albumInput = document.getElementById('albumInput');
@@ -102,6 +103,7 @@ async function detectClip() {
 
 function renderClip() {
   thumbnail.src = clip.thumbnailUrl;
+  statusThumbnail.src = clip.thumbnailUrl;
   titleInput.value = clip.title;
   artistInput.value = clip.artistName;
   albumInput.value = clip.albumTitle;

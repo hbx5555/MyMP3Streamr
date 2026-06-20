@@ -133,6 +133,24 @@ progress {
   accent-color: var(--accent-strong);
 }
 
+.status-artwork {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(94, 234, 212, 0.1), transparent),
+    var(--panel-soft);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+}
+
+.status-artwork img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 #errorMessage {
   color: var(--danger);
 }
