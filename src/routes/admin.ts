@@ -39,7 +39,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const media = await listMediaItems();
     const items = await Promise.all(media.map(async (item) => ({
       ...item,
-      coverUrl: item.cover_key ? await presignR2Get(item.cover_key, 1800) : null
+      coverUrl: item.cover_key ? await presignR2Get(item.cover_key, 1800) : null,
+      audioUrl: await presignR2Get(item.audio_key, 1800)
     })));
     return reply.send({ ok: true, media: items });
   });

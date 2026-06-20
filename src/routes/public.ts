@@ -954,12 +954,21 @@ function renderMediaManagerPage(appBaseUrl: string) {
         box-shadow: 0 18px 40px rgba(0,0,0,0.22);
       }
       .cover {
+        width: 100%;
+        padding: 0;
+        border: 0;
+        color: inherit;
+        cursor: pointer;
         aspect-ratio: 1 / 1;
         background: var(--panel-soft);
         border-bottom: 1px solid var(--line);
         display: grid;
         place-items: center;
         overflow: hidden;
+      }
+      .cover:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: -3px;
       }
       .cover img {
         width: 100%;
@@ -996,10 +1005,22 @@ function renderMediaManagerPage(appBaseUrl: string) {
       }
       .card-actions {
         display: flex;
+        flex-wrap: wrap;
         gap: 10px;
         align-items: center;
         justify-content: flex-end;
         margin-top: 6px;
+      }
+      .card-actions button.play {
+        border: 1px solid rgba(125,211,252,0.35);
+        border-radius: 999px;
+        background: linear-gradient(135deg, #0369a1, #2563eb);
+        color: white;
+        font: inherit;
+        font-weight: 700;
+        padding: 10px 16px;
+        min-height: 40px;
+        cursor: pointer;
       }
       .card-actions button.delete {
         border: 0;
@@ -1038,6 +1059,39 @@ function renderMediaManagerPage(appBaseUrl: string) {
         border-radius: 18px;
         padding: 28px;
       }
+      .player-bar {
+        position: sticky;
+        z-index: 10;
+        bottom: 14px;
+        display: none;
+        grid-template-columns: minmax(160px, 1fr) minmax(260px, 2fr);
+        align-items: center;
+        gap: 18px;
+        margin-top: 18px;
+        padding: 14px 18px;
+        border: 1px solid rgba(125,211,252,0.3);
+        border-radius: 16px;
+        background: rgba(23,27,35,0.96);
+        box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+        backdrop-filter: blur(16px);
+      }
+      .player-bar.visible { display: grid; }
+      .now-playing {
+        min-width: 0;
+      }
+      .now-playing strong,
+      .now-playing span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .now-playing span {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .player-bar audio { width: 100%; }
       @media (max-width: 980px) {
         .media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
@@ -1045,6 +1099,7 @@ function renderMediaManagerPage(appBaseUrl: string) {
         main { padding: 20px 0 32px; }
         header { align-items: start; flex-direction: column; }
         .media-grid { grid-template-columns: 1fr; }
+        .player-bar { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -1078,6 +1133,13 @@ function renderMediaManagerPage(appBaseUrl: string) {
           </div>
         </label>
         <div id="mediaGrid" class="media-grid"></div>
+        <div id="playerBar" class="player-bar" aria-live="polite">
+          <div class="now-playing">
+            <strong id="nowPlayingTitle">Nothing playing</strong>
+            <span id="nowPlayingArtist"></span>
+          </div>
+          <audio id="audioPlayer" controls preload="metadata"></audio>
+        </div>
       </section>
     </main>
     <script>
@@ -1088,6 +1150,66 @@ function renderMediaManagerPage(appBaseUrl: string) {
       const adminKey = document.getElementById('adminKey');
       const checkKeyButton = document.getElementById('checkKeyButton');
       const keyStatus = document.getElementById('keyStatus');
+      const playerBar = document.getElementById('playerBar');
+      const audioPlayer = document.getElementById('audioPlayer');
+      const nowPlayingTitle = document.getElementById('nowPlayingTitle');
+      const nowPlayingArtist = document.getElementById('nowPlayingArtist');
+      let activeTrackId = null;
+
+      function updatePlayButtons() {
+        for (const button of document.querySelectorAll('button.play')) {
+          const isActive = button.dataset.trackId === activeTrackId;
+          button.textContent = isActive && !audioPlayer.paused ? 'Pause' : 'Play';
+          button.setAttribute('aria-label', (isActive && !audioPlayer.paused ? 'Pause ' : 'Play ') + button.dataset.trackTitle);
+        }
+      }
+
+      async function togglePlayback(item) {
+        if (activeTrackId === item.id) {
+          if (audioPlayer.paused) {
+            await audioPlayer.play();
+          } else {
+            audioPlayer.pause();
+          }
+          return;
+        }
+
+        activeTrackId = item.id;
+        audioPlayer.src = item.audioUrl;
+        nowPlayingTitle.textContent = item.title;
+        nowPlayingArtist.textContent = item.artist_name + ' • ' + item.album_title;
+        if ('mediaSession' in navigator && 'MediaMetadata' in window) {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: item.title,
+            artist: item.artist_name,
+            album: item.album_title,
+            artwork: item.coverUrl ? [{ src: item.coverUrl }] : []
+          });
+        }
+        playerBar.classList.add('visible');
+        updatePlayButtons();
+        try {
+          await audioPlayer.play();
+          setStatus('Playing ' + item.title + '.', 'ok');
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : 'Playback could not start', 'error');
+        }
+      }
+
+      audioPlayer.addEventListener('play', updatePlayButtons);
+      audioPlayer.addEventListener('pause', updatePlayButtons);
+      audioPlayer.addEventListener('ended', updatePlayButtons);
+      audioPlayer.addEventListener('error', () => {
+        setStatus('Playback failed. Reload the media list to refresh its playback link.', 'error');
+      });
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.setActionHandler('play', () => audioPlayer.play());
+          navigator.mediaSession.setActionHandler('pause', () => audioPlayer.pause());
+        } catch {
+          // Native browser controls remain available when OS media actions are unsupported.
+        }
+      }
 
       function authHeaders() {
         const key = adminKey.value.trim() || window.localStorage.getItem('adminKey') || '';
@@ -1145,8 +1267,13 @@ function renderMediaManagerPage(appBaseUrl: string) {
         card.className = 'card';
         card.dataset.trackId = item.id;
 
-        const cover = document.createElement('div');
+        const cover = document.createElement('button');
         cover.className = 'cover';
+        cover.type = 'button';
+        cover.setAttribute('aria-label', 'Play ' + item.title);
+        cover.addEventListener('click', () => {
+          togglePlayback(item).catch(() => {});
+        });
         if (item.coverUrl) {
           const img = document.createElement('img');
           img.src = item.coverUrl;
@@ -1185,7 +1312,18 @@ function renderMediaManagerPage(appBaseUrl: string) {
 
         const cardStatus = document.createElement('span');
         cardStatus.className = 'card-status';
-        cardStatus.textContent = 'Ready to delete';
+        cardStatus.textContent = 'Ready';
+
+        const playButton = document.createElement('button');
+        playButton.className = 'play';
+        playButton.type = 'button';
+        playButton.textContent = 'Play';
+        playButton.dataset.trackId = item.id;
+        playButton.dataset.trackTitle = item.title;
+        playButton.setAttribute('aria-label', 'Play ' + item.title);
+        playButton.addEventListener('click', () => {
+          togglePlayback(item).catch(() => {});
+        });
 
         const deleteButton = document.createElement('button');
         deleteButton.className = 'delete';
@@ -1221,6 +1359,16 @@ function renderMediaManagerPage(appBaseUrl: string) {
               cardStatus.textContent = 'Deleted';
               cardStatus.className = 'card-status ok';
             }
+            if (activeTrackId === item.id) {
+              audioPlayer.pause();
+              audioPlayer.removeAttribute('src');
+              audioPlayer.load();
+              activeTrackId = null;
+              playerBar.classList.remove('visible');
+              if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = null;
+              }
+            }
             await loadMedia();
           } catch (error) {
             card.style.opacity = '1';
@@ -1236,6 +1384,7 @@ function renderMediaManagerPage(appBaseUrl: string) {
         const actions = document.createElement('div');
         actions.className = 'card-actions';
         actions.appendChild(cardStatus);
+        actions.appendChild(playButton);
         actions.appendChild(deleteButton);
         content.appendChild(actions);
         return card;
